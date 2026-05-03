@@ -68,9 +68,59 @@ def plot_learning_comparison(
     plt.close()
 
 
-def plot_confusion_matrix(zeta: Array, O: Array, save_to: str | None = None) -> None:
-    """Grafica la matriz de confusión de las predicciones."""
-    raise NotImplementedError("TODO")
+def plot_threshold_sweep(results: list[dict], best_threshold: float, output_path: str) -> None:
+    """Line chart of F1 vs classification threshold, with a dashed marker at best_threshold.
+
+    results — list of dicts with keys: threshold, f1
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    thresholds = [r["threshold"] for r in results]
+    f1_scores  = [r["f1"]        for r in results]
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(thresholds, f1_scores, marker="o", color="steelblue", linewidth=2)
+    ax.axvline(best_threshold, color="crimson", linestyle="--", linewidth=1.5,
+               label=f"Best threshold = {best_threshold}")
+    ax.set_title("F1 vs Classification Threshold")
+    ax.set_xlabel("Threshold")
+    ax.set_ylabel("F1 Score")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def plot_confusion_matrix(TP: float, TN: float, FP: float, FN: float,
+                          threshold: float, output_path: str) -> None:
+    """Renders the 2x2 confusion matrix for a given threshold."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Row 0 = Actual Positive, Row 1 = Actual Negative
+    matrix = np.array([[TP, FN], [FP, TN]])
+    cell_labels = [["TP", "FN"], ["FP", "TN"]]
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    ax.imshow(matrix, cmap="Blues")
+
+    ax.set_xticks([0, 1])
+    ax.set_yticks([0, 1])
+    ax.set_xticklabels(["Predicted +", "Predicted −"])
+    ax.set_yticklabels(["Actual +", "Actual −"])
+
+    vmax = matrix.max() if matrix.max() > 0 else 1
+    for i in range(2):
+        for j in range(2):
+            color = "white" if matrix[i, j] > vmax / 2 else "black"
+            ax.text(j, i, f"{cell_labels[i][j]}\n{int(matrix[i, j])}",
+                    ha="center", va="center", fontsize=14, fontweight="bold", color=color)
+
+    ax.set_title(f"Confusion Matrix (threshold={threshold})")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
 
 
 def plot_decision_boundary(X: Array, zeta: Array, model, title: str, output_path: str) -> None:

@@ -41,3 +41,10 @@ class MultilayerPerceptron(Model):
         """Asigna pesos a todas las capas."""
         for layer, (w, b) in zip(self.layers, weights):
             layer.set_weights(w, b)
+
+    def clone(self) -> "MultilayerPerceptron":
+        """Returns a new MLP with the same architecture but freshly initialised weights."""
+        return MultilayerPerceptron([
+            NeuronLayer(n_inputs=layer.n_inputs, n_neurons=layer.n_neurons, activation=layer.activation)
+            for layer in self.layers
+        ])
