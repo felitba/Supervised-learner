@@ -12,7 +12,7 @@ class PerceptronLinear(Perceptron):
         return np.dot(X, self.weights) + self.bias
 
 
-    def fit(self, X, y):
+    def fit(self, X, y, batch_size=1):
         n_samples, n_features = X.shape
         self.weights = np.random.rand(n_features)
         self.bias = np.random.rand()
@@ -23,6 +23,9 @@ class PerceptronLinear(Perceptron):
             predictions = np.zeros_like(y, dtype=float)
             rng = np.random.default_rng(seed=42)
             indices = rng.permutation(n_samples)
+            batch_updates = []
+            batch_size_counter = 0
+            
             for idx in indices:
                 xi = X[idx]
                 target = y[idx]
@@ -35,14 +38,15 @@ class PerceptronLinear(Perceptron):
 
 
                 update = self.lr * (target - y_pred)
-
-                # we need to update the weight and bias.
-                # in the ADALINE algorithm, the activation function is the identity
-                # so it does not influece the update rule in this case
-                # in other cases, it should be appended as
-                # self.weights += update * xi * (the derivative of activation function)
-                self.weights += update * xi
-                self.bias += update
+                batch_updates.append(update)
+                if batch_size_counter >= batch_size:
+                    mean_batch_update = np.mean(batch_updates)
+                    self.weights += mean_batch_update * xi
+                    self.bias += mean_batch_update
+                    batch_size_counter = 0
+                    batch_updates = []
+                else:
+                    batch_size_counter += 1
 
             err = mse(self,y, predictions)
             self.errors_per_epoch.append(err)

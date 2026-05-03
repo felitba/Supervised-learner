@@ -26,7 +26,7 @@ class PerceptronNonLinear(Perceptron):
         beta = 0.1 if self.beta_value is None else self.beta_value
         return np.tanh(beta * linear_output)
 
-    def fit(self, X, y, beta_value=0.1):
+    def fit(self, X, y, beta_value=0.1, batch_size=1):
         self.beta_value = beta_value
         n_samples, n_features = X.shape
         self.weights = np.random.rand(n_features)
@@ -42,6 +42,11 @@ class PerceptronNonLinear(Perceptron):
             rng = np.random.default_rng(seed=42)
             indices = rng.permutation(n_samples)
 
+            # Initialize batch gradient accumulators
+            grad_w = np.zeros_like(self.weights)
+            grad_b = 0.0
+            batch_count = 0
+
             for idx in indices:
                 xi = X[idx]
                 target = y[idx]
@@ -50,9 +55,29 @@ class PerceptronNonLinear(Perceptron):
                 y_pred = np.tanh(self.beta_value * linear_output)
                 predictions[idx] = y_pred
 
-                update = self.lr * (target - y_pred)
-                self.weights += update * xi * _tanh_derivative(linear_output, self.beta_value)
-                self.bias += update * _tanh_derivative(linear_output, self.beta_value)
+                # delta = (t - y) * tanh'(beta*z)
+                delta = (target - y_pred) * _tanh_derivative(linear_output, self.beta_value)
+
+                # Accumulate gradients for the batch
+                grad_w += delta * xi
+                grad_b += delta
+                batch_count += 1
+
+                # If batch is full, apply averaged update
+                if batch_count == batch_size:
+                    self.weights += self.lr * (grad_w / batch_count)
+                    self.bias += self.lr * (grad_b / batch_count)
+
+                    # Reset batch accumulators
+                    grad_w.fill(0.0)
+                    grad_b = 0.0
+                    batch_count = 0
+
+            # Apply any remaining partial batch (if n_samples % batch_size != 0)
+            if batch_count > 0:
+                self.weights += self.lr * (grad_w / batch_count)
+                self.bias += self.lr * (grad_b / batch_count)
+
 
             err = mse(self,y, predictions)
             self.errors_per_epoch.append(err)
