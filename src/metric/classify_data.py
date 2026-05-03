@@ -15,7 +15,6 @@ def classify_data (zeta: Array, output: Array,threshold:float =0.8)->Array:
     false_pos, false_neg, true_pos, true_neg = np.zeros(4)
     for index in range(arr_output_size):
         adjusted_output = 1 if output[index] >= threshold else 0
-        print(f"Index: {index}  Output: {output[index]:.4f}  Adjusted Output: {adjusted_output}  Zeta: {zeta[index]}")
         if zeta[index] == 1 and adjusted_output == 1:
             true_pos += 1
         elif zeta[index] == 0 and adjusted_output == 1:
