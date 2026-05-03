@@ -50,7 +50,7 @@ class NeuronLayer:
 
     def get_weights(self) -> tuple[Array, Array]:
         """Retorna (weights, bias)."""
-        return (self.weights, self.bias)
+        return self.weights, self.bias
 
     def set_weights(self, weights: Array, bias: Array) -> None:
         """Asigna pesos y bias."""
