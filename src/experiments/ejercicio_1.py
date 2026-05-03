@@ -84,7 +84,7 @@ def _learning_study(cfg: ExperimentConfig, dataset: Dataset) -> tuple[dict, dict
     # TODO Ejercicio 1a/1b: analyze underfitting and saturation from these curves to select the best perceptron for Part 2
     plot_learning_comparison(
         history_linear, history_nonlinear,
-        output_path="output/experiment/ej1/learning_comparison.png",
+        output_path="output/experiment/ej1/learning/learning_comparison.png",
     )
     print("  Gráficos guardados en output/experiment/ej1/")
 
@@ -92,7 +92,7 @@ def _learning_study(cfg: ExperimentConfig, dataset: Dataset) -> tuple[dict, dict
 
 
 # TP3 K-Fold Cross Validation — see slides on model selection
-def _run_kfold(cfg: ExperimentConfig, dataset: Dataset, model_template: MultilayerPerceptron, run_label: str = "") -> float:
+def _run_kfold(cfg: ExperimentConfig, dataset: Dataset, model_template: MultilayerPerceptron, run_label: str = "", output_dir: str = "output/experiment/ej1/folds/default") -> float:
     """Runs k-fold cross validation (k=5) and returns avg validation error."""
     # TODO: make k configurable via cfg (add k_folds field to ExperimentConfig)
     k = 5
@@ -122,7 +122,7 @@ def _run_kfold(cfg: ExperimentConfig, dataset: Dataset, model_template: Multilay
         )
 
         #TODO: evaluar
-        plot_error_curve(history, output_path=f"output/experiment/ej1/fold_{i}_error.png")
+        plot_error_curve(history, output_path=f"{output_dir}/fold_{i}_error.png")
         if history["val_error"]:
             prefix = f"  [{run_label}] " if run_label else "  "
             print(f"{prefix}Fold {i+1}/{k}: train={history['train_error'][-1]:.4f}  val={history['val_error'][-1]:.4f}")
@@ -151,7 +151,7 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
     # Step 2: Grid search over eta, epochs, beta
     # TODO: consider reducing grid size if runtime is too slow
     etas   = [0.001, 0.01, 0.1]
-    epochs = [100, 200, 500]
+    epochs = [100, 150, 200]
     betas  = [0.5, 1.0, 2.0]
 
     total_combos = len(etas) * len(epochs) * len(betas)
@@ -167,7 +167,8 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
                 combo_n += 1
                 print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  beta={beta}")
                 cfg_variant = dataclasses.replace(cfg, eta=eta, epochs=ep, beta=beta)
-                avg_val_error = _run_kfold(cfg_variant, train_val_ds, model, run_label=f"{combo_n}/{total_combos}")
+                combo_dir = f"output/experiment/ej1/folds/combo_{combo_n:02d}_eta{eta}_ep{ep}_beta{beta}"
+                avg_val_error = _run_kfold(cfg_variant, train_val_ds, model, run_label=f"{combo_n}/{total_combos}", output_dir=combo_dir)
                 params = {"eta": eta, "epochs": ep, "beta": beta}
                 results.append((params, avg_val_error))
                 print(f"  → avg_val_error={avg_val_error:.4f}")
@@ -206,20 +207,20 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
     best_result = None
     threshold_results = []
 
-    for threshold in np.arange(0.1, 1.0, 0.1):
+    for threshold in np.arange(0.1, 1.0, 0.01):
         # TODO: add this as parameter in config. We assume that prob. >= threshold is a positive classification
         [false_pos, false_neg, true_pos, true_neg] = classify_data(
-            test_fraud_labels, test_predictions, threshold=round(threshold, 1)
+            test_fraud_labels, test_predictions, threshold=round(threshold, 2)
         )
         f1 = F1Metric().compute(false_pos, false_neg, true_pos, true_neg)
         threshold_results.append({
-            "threshold": round(threshold, 1),
+            "threshold": round(threshold, 2),
             "tp": true_pos, "tn": true_neg, "fp": false_pos, "fn": false_neg,
             "f1": f1,
         })
         if f1 > best_f1:
             best_f1 = f1
-            best_threshold = round(threshold, 1)
+            best_threshold = round(threshold, 2)
             best_result = (false_pos, false_neg, true_pos, true_neg)
 
     false_pos, false_neg, true_pos, true_neg = best_result
@@ -232,10 +233,10 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
     print(f"  {'-' * len(header)}")
     for r in threshold_results:
         marker = "  ← best" if r["threshold"] == best_threshold else ""
-        print(f"  {r['threshold']:>9.1f} | {int(r['tp']):>6} | {int(r['tn']):>6} | {int(r['fp']):>6} | {int(r['fn']):>6} | {r['f1']:>8.4f}{marker}")
+        print(f"  {r['threshold']:>9.2f} | {int(r['tp']):>6} | {int(r['tn']):>6} | {int(r['fp']):>6} | {int(r['fn']):>6} | {r['f1']:>8.4f}{marker}")
 
-    plot_threshold_sweep(threshold_results, best_threshold, "output/experiment/ej1/threshold_sweep.png")
-    plot_confusion_matrix(true_pos, true_neg, false_pos, false_neg, best_threshold, "output/experiment/ej1/confusion_matrix.png")
+    plot_threshold_sweep(threshold_results, best_threshold, "output/experiment/ej1/threshold/threshold_sweep.png")
+    plot_confusion_matrix(true_pos, true_neg, false_pos, false_neg, best_threshold, "output/experiment/ej1/threshold/confusion_matrix.png")
     # TODO Ejercicio 1c: report this threshold as recommendation to CompanyX
 
 
