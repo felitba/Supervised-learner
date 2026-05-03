@@ -8,6 +8,21 @@ from numpy.typing import NDArray
 
 Array = NDArray[np.float64]
 
+plt.rcParams.update({
+    "figure.facecolor":  "#000000",
+    "axes.facecolor":    "#000000",
+    "axes.edgecolor":    "#ffffff",
+    "axes.labelcolor":   "#ffffff",
+    "text.color":        "#ffffff",
+    "xtick.color":       "#ffffff",
+    "ytick.color":       "#ffffff",
+    "grid.color":        "#ffffff",
+    "legend.facecolor":  "#000000",
+    "legend.edgecolor":  "#ffffff",
+    "savefig.facecolor": "#000000",
+    "savefig.edgecolor": "#000000",
+})
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -103,7 +118,7 @@ def plot_confusion_matrix(TP: float, TN: float, FP: float, FN: float,
     cell_labels = [["TP", "FN"], ["FP", "TN"]]
 
     fig, ax = plt.subplots(figsize=(4, 4))
-    ax.imshow(matrix, cmap="Blues")
+    ax.imshow(matrix, cmap="plasma")
 
     ax.set_xticks([0, 1])
     ax.set_yticks([0, 1])
