@@ -12,8 +12,8 @@ from src.metric.classify_data import classify_data
 from src.metric.f1 import F1Metric
 from src.cost.mse import MSECost
 from src.optimizer.gradient_descent import GradientDescent
-from src.optimizer.adam import Adam
-from src.optimizer.momentum import Momentum
+from src.optimizer.adam import AdamOptimizer
+from src.optimizer.momentum import MomentumOptimizer
 from src.activation.tanh import TanhActivation
 from src.network.multilayer_perceptron import MultilayerPerceptron
 from src.network.neuron_layer import NeuronLayer
@@ -24,9 +24,9 @@ from analysis.plots import plot_error_curve, plot_confusion_matrix_multiclass
 
 def _build_optimizer(cfg: ExperimentConfig):
     if cfg.optimizer == "adam":
-        return Adam(learning_rate=cfg.eta, beta1=cfg.adam_beta1, beta2=cfg.adam_beta2)
+        return AdamOptimizer(learning_rate=cfg.eta, beta1=cfg.adam_beta1, beta2=cfg.adam_beta2)
     if cfg.optimizer == "momentum":
-        return Momentum(learning_rate=cfg.eta, beta=cfg.momentum_beta)
+        return MomentumOptimizer(learning_rate=cfg.eta, beta=cfg.momentum_beta)
     return GradientDescent(learning_rate=cfg.eta)
 
 
