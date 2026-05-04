@@ -4,9 +4,9 @@
   "data_path": "data/digits.csv",
   "target_column": "label",
   "preprocessing": "normalize",
-  "split_train": 0.8,
-  "split_val": 0.1,
-  "split_test": 0.1,
+  "split_train": 1.0,
+  "split_val": 0.0,
+  "split_test": 0.0,
   "activation": "tanh",
   "beta": 1.0,
   "architecture": [784, 64, 32, 10],
@@ -15,7 +15,7 @@
   "eta": 0.01,
   "training_mode": "minibatch",
   "batch_size": 32,
-  "epochs": 200,
+  "epochs": 100,
   "epsilon": 0.001,
-  "metrics": ["accuracy"]
+  "metrics": ["accuracy", "f1"]
 }
