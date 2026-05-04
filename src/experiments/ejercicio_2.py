@@ -13,12 +13,22 @@ from src.metric.classify_data import classify_data
 from src.metric.f1 import F1Metric
 from src.cost.mse import MSECost
 from src.optimizer.gradient_descent import GradientDescent
+from src.optimizer.adam import AdamOptimizer
+from src.optimizer.momentum import MomentumOptimizer
 from src.activation.tanh import TanhActivation
 from src.network.multilayer_perceptron import MultilayerPerceptron
 from src.network.neuron_layer import NeuronLayer
 from src.config import ExperimentConfig
 from src.trainer import Trainer
 from analysis.plots import plot_error_curve, plot_confusion_matrix_multiclass
+
+
+def _build_optimizer(cfg: ExperimentConfig):
+    if cfg.optimizer == "adam":
+        return AdamOptimizer(learning_rate=cfg.eta, beta1=cfg.adam_beta1, beta2=cfg.adam_beta2)
+    if cfg.optimizer == "momentum":
+        return MomentumOptimizer(learning_rate=cfg.eta, beta=cfg.momentum_beta)
+    return GradientDescent(learning_rate=cfg.eta)
 
 
 def _build_model(cfg: ExperimentConfig) -> MultilayerPerceptron:
@@ -89,10 +99,9 @@ def _run_kfold(
         # Pesos frescos cada fold para evitar contaminación entre folds
         fold_model = model_template.clone()
 
-        #TODO: entrenar
         trainer = Trainer(
             cost_fn=MSECost(),
-            optimizer=GradientDescent(learning_rate=cfg.eta),
+            optimizer=_build_optimizer(cfg),
             metrics=[],
             cfg=cfg,
         )
@@ -139,16 +148,16 @@ def _generalization_study(
     # Paso 1: digits.csv entero es para tuning — NO separamos test set aquí.
     # digits_test.csv es el held-out final, se toca SOLO en el paso 4.
 
-    # Paso 2: Grid search sobre eta, epochs y arquitecturas.
+    # Paso 2: Grid search sobre eta, epochs, arquitecturas y optimizadores.
     # TODO: considerar reducir la grilla si el tiempo de ejecución es muy largo
-    etas          = [0.1]
-    epochs_list   = [100]
+    etas          = [0.001, 0.01, 0.1]
+    epochs_list   = [50, 100, 200]
     # Arquitecturas: [entrada, oculta(s), salida] — entrada=784 píxeles, salida=10 clases.
     # Por defecto en config: [784, 64, 32, 10]
-    architectures = [[784, 64, 128, 10]]
-    # TODO: agregar Momentum y Adam a la grilla una vez implementados en src/optimizer/
+    architectures = [[784, 64, 32, 10], [784, 64, 64, 10], [784, 64, 128, 10]]
+    optimizers    = ["gradient_descent", "adam"]
 
-    total_combos = len(etas) * len(epochs_list) * len(architectures)
+    total_combos = len(etas) * len(epochs_list) * len(architectures) * len(optimizers)
     print(f"\n{'=' * 60}")
     print(f"  FASE 2 — Grid Search + K-Fold ({total_combos} combinaciones)")
     print(f"{'=' * 60}")
@@ -158,31 +167,33 @@ def _generalization_study(
     for eta in etas:
         for ep in epochs_list:
             for arch in architectures:
-                combo_n += 1
-                print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  arch={arch}")
-                cfg_variant   = dataclasses.replace(cfg, eta=eta, epochs=ep, architecture=arch)
-                model_variant = _build_model(cfg_variant)
-                combo_dir = (
-                    f"output/experiment/ej2/kfold/"
-                    f"combo_{combo_n:02d}_eta{eta}_ep{ep}"
-                )
-                avg_accuracy, _ = _run_kfold(
-                    cfg_variant, dataset, int_labels, model_variant,
-                    run_label=f"{combo_n}/{total_combos}",
-                    output_dir=combo_dir,
-                )
-                results.append(({"eta": eta, "epochs": ep, "architecture": arch}, avg_accuracy))
-                print(
-                    f"  → Grid [eta={eta} epochs={ep} arch={arch}] "
-                    f"→ avg_accuracy={avg_accuracy:.4f}"
-                )
+                for opt in optimizers:
+                    combo_n += 1
+                    print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  arch={arch}  optimizer={opt}")
+                    cfg_variant   = dataclasses.replace(cfg, eta=eta, epochs=ep, architecture=arch, optimizer=opt)
+                    model_variant = _build_model(cfg_variant)
+                    combo_dir = (
+                        f"output/experiment/ej2/kfold/"
+                        f"combo_{combo_n:02d}_eta{eta}_ep{ep}_{opt}"
+                    )
+                    avg_accuracy, _ = _run_kfold(
+                        cfg_variant, dataset, int_labels, model_variant,
+                        run_label=f"{combo_n}/{total_combos}",
+                        output_dir=combo_dir,
+                    )
+                    results.append(({"eta": eta, "epochs": ep, "architecture": arch, "optimizer": opt}, avg_accuracy))
+                    print(
+                        f"  → Grid [eta={eta} epochs={ep} arch={arch} optimizer={opt}] "
+                        f"→ avg_accuracy={avg_accuracy:.4f}"
+                    )
 
     # Seleccionamos por MAYOR accuracy (no menor error)
     best_params, best_accuracy = max(results, key=lambda x: x[1])
     print(f"\n{'─' * 60}")
     print(
         f"  Mejor combinación: eta={best_params['eta']}  "
-        f"epochs={best_params['epochs']}  arch={best_params['architecture']}"
+        f"epochs={best_params['epochs']}  arch={best_params['architecture']}  "
+        f"optimizer={best_params['optimizer']}"
     )
     print(f"  avg_accuracy={best_accuracy:.4f}")
     print(f"{'─' * 60}")
@@ -193,6 +204,7 @@ def _generalization_study(
         eta=best_params["eta"],
         epochs=best_params["epochs"],
         architecture=best_params["architecture"],
+        optimizer=best_params["optimizer"],
     )
 
     # Normalización con parámetros de digits.csv completo
@@ -201,7 +213,7 @@ def _generalization_study(
     final_model   = _build_model(cfg_best)
     final_trainer = Trainer(
         cost_fn=MSECost(),
-        optimizer=AdamOptimizer(learning_rate=cfg_best.eta),
+        optimizer=_build_optimizer(cfg_best),
         metrics=[],
         cfg=cfg_best,
     )
