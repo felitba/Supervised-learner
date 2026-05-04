@@ -34,10 +34,10 @@ class AdamOptimizer(Optimizer):
          updated = []
          new_velocities = []
          new_m = []
-
+         self._t += 1
          for (w, b), (gw, gb), (vel_weights, vel_bias), (m_weights, m_bias) in zip(params, grads, self._velocities, self._m):
             # Calculate new m
-            self._t += 1
+
             m_weights = self.beta1 * m_weights + (1 - self.beta1) * gw
             m_bias = self.beta1 * m_bias + (1 - self.beta1) * gb
 
@@ -47,11 +47,11 @@ class AdamOptimizer(Optimizer):
 
 
             # Apply Bias correction for m and velocities
-            m_weights_adjusted = m_weights / (1 - self.beta1 ** (self._t + 1))
-            m_bias_adjusted = m_bias / (1 - self.beta1 ** (self._t + 1))
+            m_weights_adjusted = m_weights / (1 - self.beta1 ** self._t)
+            m_bias_adjusted = m_bias / (1 - self.beta1 ** self._t)
 
-            vel_weights_adjusted = vel_weights / (1 - self.beta2 ** (self._t + 1))
-            vel_bias_adjusted = vel_bias / (1 - self.beta2 ** (self._t + 1))
+            vel_weights_adjusted = vel_weights / (1 - self.beta2 ** self._t)
+            vel_bias_adjusted = vel_bias / (1 - self.beta2 ** self._t)
 
             # Update weights
             w_new = w - self.learning_rate * (m_weights_adjusted / (np.sqrt(vel_weights_adjusted) + self.epsilon))
