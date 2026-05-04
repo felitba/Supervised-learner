@@ -21,7 +21,7 @@ class MomentumOptimizer(Optimizer):
 
         for (w, b), (gw, gb), (vel_weights, vel_bias) in zip(params, grads, self._velocities):
             vel_weights = self.beta * vel_weights + (1.0 - self.beta) * gw
-            vel_bias = self.beta * vel_bias + (1.0 - self.beta) * gb
+            vel_weights = self.beta * vel_weights + gw
 
             w_new = w - self.learning_rate * vel_weights
             b_new = b - self.learning_rate * vel_bias
