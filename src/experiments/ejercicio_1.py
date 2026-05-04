@@ -59,7 +59,7 @@ def _learning_study(cfg: ExperimentConfig, dataset: Dataset) -> tuple[dict, dict
     print("=" * 55)
     print(f"  Modelo:      ADALINE Lineal")
     print(f"  Épocas:      {history_linear['epochs']}")
-    #TODO: fix this. son varios pesos, y no layer.weights[0, 0].
+    #TODO: corregir esto. son varios pesos, y no layer.weights[0, 0].
     print(f"  Peso final:  w={layer.weights[0, 0]:.4f}   (esperado ≈ 2.0)")
     print(f"  Bias final:  w₀={layer.bias[0]:.4f}   (esperado ≈ 5.0)")
     # TODO> para esta etapa, no usamos val. Como esta funcion de grafico depende de val, la comento por ahora

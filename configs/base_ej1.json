@@ -4,10 +4,10 @@
   "data_path": "data/transactions.csv",
   "target_column": "big_model_fraud_probability",
   "preprocessing": "normalize",
-  "split_train": 0.7,
-  "split_val": 0.1,
+  "split_train": 0.8,
+  "split_val": 0.0,
   "split_test": 0.2,
-  "activation": "identity",
+  "activation": "tanh",
   "beta": 1.0,
   "architecture": [7, 1],
   "cost_function": "mse",
@@ -16,6 +16,6 @@
   "training_mode": "online",
   "epochs": 200,
   "epsilon": 0.001,
-  "metrics": ["mse", "accuracy"],
-  "columns_to_ignore" : ["flagged_fraud", "timestamp","device_screen_resolution"]
+  "metrics": ["mse"],
+  "columns_to_ignore": ["flagged_fraud", "timestamp", "device_screen_resolution"]
 }

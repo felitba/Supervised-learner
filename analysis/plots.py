@@ -297,6 +297,45 @@ def plot_k_sensitivity(results: list[dict], output_path: str, hparams_str: str =
     plt.close()
 
 
+def plot_confusion_matrix_multiclass(
+    matrix: np.ndarray,
+    output_path: str,
+    hparams_str: str = "",
+) -> None:
+    """Heatmap de matriz de confusión para clasificación multi-clase (10×10 para dígitos).
+
+    matrix — array (n_classes, n_classes): matrix[clase_real][clase_predicha]
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    n = matrix.shape[0]
+    vmin = 0
+    vmax = float(matrix.max()) if matrix.max() > 0 else 1.0
+    color_threshold = (vmax - vmin) / 2
+
+    fig, ax = plt.subplots(figsize=(8, 7))
+    ax.imshow(matrix, cmap=_DARK_CM, vmin=vmin, vmax=vmax)
+
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
+    ax.set_xticklabels([str(i) for i in range(n)])
+    ax.set_yticklabels([str(i) for i in range(n)])
+    ax.set_xlabel("Clase predicha")
+    ax.set_ylabel("Clase real")
+    ax.set_title("Matriz de Confusión — dígitos 0-9")
+
+    for i in range(n):
+        for j in range(n):
+            color = "black" if matrix[i, j] > color_threshold else "white"
+            ax.text(j, i, str(int(matrix[i, j])),
+                    ha="center", va="center", fontsize=8, fontweight="bold", color=color)
+
+    _add_hparams_subtitle(hparams_str)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
 def plot_metric_comparison(df: pd.DataFrame, metric: str, save_to: str | None = None) -> None:
     """Grafica comparación de una métrica entre múltiples runs."""
     raise NotImplementedError("TODO")
