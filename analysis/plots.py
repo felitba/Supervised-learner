@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 from numpy.typing import NDArray
 
 Array = NDArray[np.float64]
@@ -23,11 +24,24 @@ plt.rcParams.update({
     "savefig.edgecolor": "#000000",
 })
 
+# Dark-theme friendly colormap: dark navy → bright cyan-white
+_DARK_CM = LinearSegmentedColormap.from_list("dark_blue", ["#0a1628", "#a8d8ff"])
+
 if TYPE_CHECKING:
     import pandas as pd
 
 
-def plot_error_curve(history: dict, output_path: str) -> None:
+def _add_hparams_subtitle(hparams_str: str) -> None:
+    """Renders a small gray italic annotation at the bottom of the figure."""
+    if not hparams_str:
+        return
+    fig = plt.gcf()
+    fig.text(0.5, -0.04, hparams_str, ha="center", va="bottom",
+             fontsize=7, color="gray", style="italic")
+    fig.subplots_adjust(bottom=0.18)
+
+
+def plot_error_curve(history: dict, output_path: str, hparams_str: str = "") -> None:
     """Grafica E vs épocas (train y val).
 
     history — dict con "train_error" y "val_error", lo que devuelve trainer.fit()
@@ -49,6 +63,7 @@ def plot_error_curve(history: dict, output_path: str) -> None:
     plt.ylabel("E")
     plt.legend()
     plt.grid(True, alpha=0.3)
+    _add_hparams_subtitle(hparams_str)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -57,6 +72,7 @@ def plot_learning_comparison(
     history_linear: dict,
     history_nonlinear: dict,
     output_path: str,
+    hparams_str: str = "",
 ) -> None:
     """Superpone curvas de error: perceptrón lineal vs no lineal.
 
@@ -79,11 +95,13 @@ def plot_learning_comparison(
     plt.ylabel("Error de entrenamiento")
     plt.legend()
     plt.grid(True, alpha=0.3)
+    _add_hparams_subtitle(hparams_str)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
 
-def plot_threshold_sweep(results: list[dict], best_threshold: float, output_path: str) -> None:
+def plot_threshold_sweep(results: list[dict], best_threshold: float, output_path: str,
+                         hparams_str: str = "") -> None:
     """Line chart of F1 vs classification threshold, with a dashed marker at best_threshold.
 
     results — list of dicts with keys: threshold, f1
@@ -103,12 +121,14 @@ def plot_threshold_sweep(results: list[dict], best_threshold: float, output_path
     ax.set_ylabel("F1 Score")
     ax.legend()
     ax.grid(True, alpha=0.3)
+    _add_hparams_subtitle(hparams_str)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
 
 def plot_confusion_matrix(TP: float, TN: float, FP: float, FN: float,
-                          threshold: float, output_path: str) -> None:
+                          threshold: float, output_path: str,
+                          hparams_str: str = "") -> None:
     """Renders the 2x2 confusion matrix for a given threshold."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -118,27 +138,31 @@ def plot_confusion_matrix(TP: float, TN: float, FP: float, FN: float,
     cell_labels = [["TP", "FN"], ["FP", "TN"]]
 
     fig, ax = plt.subplots(figsize=(4, 4))
-    ax.imshow(matrix, cmap="plasma")
+
+    vmin = 0
+    vmax = matrix.max() if matrix.max() > 0 else 1
+    color_threshold = (vmax - vmin) / 2
+    ax.imshow(matrix, cmap=_DARK_CM, vmin=vmin, vmax=vmax)
 
     ax.set_xticks([0, 1])
     ax.set_yticks([0, 1])
     ax.set_xticklabels(["Predicted +", "Predicted −"])
     ax.set_yticklabels(["Actual +", "Actual −"])
 
-    vmax = matrix.max() if matrix.max() > 0 else 1
     for i in range(2):
         for j in range(2):
-            color = "white" if matrix[i, j] > vmax / 2 else "black"
+            color = "black" if matrix[i, j] > color_threshold else "white"
             ax.text(j, i, f"{cell_labels[i][j]}\n{int(matrix[i, j])}",
                     ha="center", va="center", fontsize=14, fontweight="bold", color=color)
 
     ax.set_title(f"Confusion Matrix (threshold={threshold})")
-    plt.tight_layout()
+    _add_hparams_subtitle(hparams_str)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
 
-def plot_decision_boundary(X: Array, zeta: Array, model, title: str, output_path: str) -> None:
+def plot_decision_boundary(X: Array, zeta: Array, model, title: str, output_path: str,
+                           hparams_str: str = "") -> None:
     """Grafica la frontera de decisión de un clasificador binario.
 
     Usado para el perceptrón escalón (ej: compuerta AND).
@@ -182,12 +206,13 @@ def plot_decision_boundary(X: Array, zeta: Array, model, title: str, output_path
     plt.ylabel("x₂")
     plt.legend()
     plt.grid(True)
+    _add_hparams_subtitle(hparams_str)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
 
 def plot_regression(X: Array, zeta: Array, model, title: str, output_path: str,
-                    xlim=(-6, 6), ylim=(-1.5, 1.5)) -> None:
+                    xlim=(-6, 6), ylim=(-1.5, 1.5), hparams_str: str = "") -> None:
     """Grafica la curva predicha por el modelo vs los datos reales.
 
     Usado para perceptrón lineal y tanh.
@@ -226,6 +251,48 @@ def plot_regression(X: Array, zeta: Array, model, title: str, output_path: str,
     plt.ylabel("y")
     plt.grid(True, alpha=0.3)
     plt.legend()
+    _add_hparams_subtitle(hparams_str)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def plot_k_sensitivity(results: list[dict], output_path: str, hparams_str: str = "") -> None:
+    """Boxplot of per-fold validation error distribution for each k.
+
+    results — list of dicts with keys: k, avg, std, folds
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    k_values   = [r["k"]     for r in results]
+    fold_errors = [r["folds"] for r in results]
+    all_errors  = [e for errs in fold_errors for e in errs]
+    overall_mean = float(np.mean(all_errors)) if all_errors else 0.0
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+
+    ax.boxplot(
+        fold_errors,
+        positions=range(len(k_values)),
+        patch_artist=True,
+        boxprops=dict(facecolor="steelblue", color="steelblue"),
+        medianprops=dict(color="orange", linewidth=2),
+        whiskerprops=dict(color="steelblue"),
+        capprops=dict(color="steelblue"),
+        flierprops=dict(marker="o", markerfacecolor="orange", markeredgecolor="orange",
+                        markersize=5, linestyle="none"),
+    )
+
+    ax.axhline(overall_mean, color="orange", linestyle="--", linewidth=1,
+               label=f"media global = {overall_mean:.4f}")
+    ax.set_xticks(range(len(k_values)))
+    ax.set_xticklabels([str(k) for k in k_values])
+    ax.set_title("K Sensitivity — distribución del error de validación por fold")
+    ax.set_xlabel("k (número de folds)")
+    ax.set_ylabel("Error de validación")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    _add_hparams_subtitle(hparams_str)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
