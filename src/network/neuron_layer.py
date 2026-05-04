@@ -13,7 +13,7 @@ class NeuronLayer:
         self.n_neurons = n_neurons
         self.activation = activation
         rng = np.random.default_rng()
-        self.weights: Array = rng.standard_normal((n_inputs, n_neurons)) * 0.01
+        self.weights = rng.standard_normal((n_inputs, n_neurons)) * np.sqrt(1.0 / n_inputs) # temporary (?
         self.bias: Array = np.zeros(n_neurons)
         self._x: Array = np.empty(n_inputs)
         self._h: Array = np.empty(n_neurons)
