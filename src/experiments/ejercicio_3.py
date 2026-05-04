@@ -3,12 +3,12 @@ import numpy as np
 import pandas as pd
 
 from analysis.plots import plot_error_curve
+from src.data_management.preprocessing import one_hot_encode
 from src.cost.categorical_cross_entropy import CategoricalCrossEntropyCost
 from src.activation.logistic import LogisticActivation
 from src.activation.tanh import TanhActivation
 from src.config import ExperimentConfig
 from src.data_management.dataset import Dataset
-from src.experiments.ejercicio_2 import one_hot
 from src.metric.evaluate_mlp import evaluate_multiclass, print_report
 from src.network.multilayer_perceptron import MultilayerPerceptron
 from src.network.neuron_layer import NeuronLayer
@@ -20,7 +20,7 @@ def run(cfg: ExperimentConfig) -> None:
     # SETUP
     df_train = pd.read_csv(cfg.data_path)
     X = np.array(df_train["image"].apply(ast.literal_eval).tolist())
-    zeta = one_hot(df_train["label"].values)
+    zeta = one_hot_encode(df_train["label"].values, n_classes=10)
 
     # Architecture from config
     layers = []
