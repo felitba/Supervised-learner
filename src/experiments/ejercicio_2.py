@@ -4,7 +4,7 @@ import ast
 import numpy as np
 import pandas as pd
 
-from src.data_management.preprocessing import fit_normalize, one_hot_encode
+from src.data_management.preprocessing import one_hot_encode
 from src.data_management.splitter import k_fold_split
 from src.data_management.dataset import Dataset
 from src.metric.classify_data_mlp import classify_data_mlp
@@ -90,10 +90,7 @@ def _run_kfold(
     fold_accuracies = []
 
     for i, ((train_ds, val_ds), (_, val_labels_ds)) in enumerate(zip(splits, label_splits)):
-        val_int_labels = val_labels_ds.zeta
-
-        # Parámetros de normalización SOLO de train — nunca de val ni test
-        norm_train_X, norm_val_X = fit_normalize(train_ds.X, val_ds.X)
+        val_int_labels = val_labels_ds.zeta.astype(int)
 
         # Pesos frescos cada fold para evitar contaminación entre folds
         fold_model = model_template.clone()
@@ -106,12 +103,12 @@ def _run_kfold(
         )
         history = trainer.fit(
             fold_model,
-            X_train=norm_train_X, zeta_train=train_ds.zeta,
-            X_val=norm_val_X,     zeta_val=val_ds.zeta,
+            X_train=train_ds.X, zeta_train=train_ds.zeta,
+            X_val=val_ds.X,     zeta_val=val_ds.zeta,
         )
 
         #TODO: evaluar
-        val_accuracy = _compute_accuracy(fold_model, norm_val_X, val_int_labels)
+        val_accuracy = _compute_accuracy(fold_model, val_ds.X, val_int_labels)
         fold_accuracies.append(val_accuracy)
 
         fold_hparams = (
@@ -149,12 +146,12 @@ def _generalization_study(
 
     # Paso 2: Grid search sobre eta, epochs, arquitecturas y optimizadores.
     # TODO: considerar reducir la grilla si el tiempo de ejecución es muy largo
-    etas          = [0.001, 0.01, 0.1]
-    epochs_list   = [50, 100, 200]
+    etas          = [0.1]
+    epochs_list   = [50]
     # Arquitecturas: [entrada, oculta(s), salida] — entrada=784 píxeles, salida=10 clases.
     # Por defecto en config: [784, 64, 32, 10]
-    architectures = [[784, 64, 32, 10], [784, 64, 64, 10], [784, 64, 128, 10]]
-    optimizers    = ["gradient_descent", "adam"]
+    architectures = [[784, 64, 32, 10]]
+    optimizers    = ["gradient_descent"]
 
     total_combos = len(etas) * len(epochs_list) * len(architectures) * len(optimizers)
     print(f"\n{'=' * 60}")
@@ -206,9 +203,6 @@ def _generalization_study(
         optimizer=best_params["optimizer"],
     )
 
-    # Normalización con parámetros de digits.csv completo
-    norm_train_X, = fit_normalize(dataset.X)
-
     final_model   = _build_model(cfg_best)
     final_trainer = Trainer(
         cost_fn=MSECost(),
@@ -217,7 +211,7 @@ def _generalization_study(
         cfg=cfg_best,
     )
     history_final = final_trainer.fit(
-        final_model, norm_train_X, dataset.zeta, X_val=None, zeta_val=None
+        final_model, dataset.X, dataset.zeta, X_val=None, zeta_val=None
     )
 
     os.makedirs("output/experiment/ej2/final", exist_ok=True)
@@ -234,16 +228,13 @@ def _generalization_study(
     # Paso 4: Evaluación final en digits_test.csv — SOLO AQUÍ se toca el test set
     df_test         = pd.read_csv("data/digits_test.csv")
     X_test          = np.array(df_test["image"].apply(ast.literal_eval).tolist())
-    int_labels_test = df_test["label"].values
+    int_labels_test = df_test["label"].values.astype(int)
 
-    # Aplicar la misma normalización del paso 3 (parámetros de digits.csv completo)
-    _, norm_test_X = fit_normalize(dataset.X, X_test)
-
-    test_accuracy = _compute_accuracy(final_model, norm_test_X, int_labels_test)
+    test_accuracy = _compute_accuracy(final_model, X_test, int_labels_test)
     print(f"\n  Accuracy en test: {test_accuracy * 100:.2f}%")
 
     # GENERALIZATION
-    test_outputs = np.array([final_model.forward(xi) for xi in norm_test_X])
+    test_outputs = np.array([final_model.forward(xi) for xi in X_test])
     confusion    = classify_data_mlp(int_labels_test, test_outputs)
 
     print("\nConfusion Matrix")
