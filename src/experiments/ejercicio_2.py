@@ -4,7 +4,6 @@ import ast
 import numpy as np
 import pandas as pd
 
-from optimizer.adam import AdamOptimizer
 from src.data_management.preprocessing import fit_normalize, one_hot_encode
 from src.data_management.splitter import k_fold_split
 from src.data_management.dataset import Dataset
