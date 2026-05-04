@@ -1,4 +1,5 @@
 import dataclasses
+import os
 import numpy as np
 
 from src.data_management.preprocessing import fit_normalize
@@ -14,7 +15,7 @@ from src.cost.mse import MSECost
 from src.optimizer.gradient_descent import GradientDescent
 from src.trainer import Trainer
 from src.config import ExperimentConfig
-from analysis.plots import plot_regression, plot_error_curve, plot_learning_comparison, plot_threshold_sweep, plot_confusion_matrix
+from analysis.plots import plot_regression, plot_error_curve, plot_learning_comparison, plot_threshold_sweep, plot_confusion_matrix, plot_k_sensitivity
 from src.metric.classify_data import classify_data
 from src.metric.f1 import F1Metric
 
@@ -58,7 +59,7 @@ def _learning_study(cfg: ExperimentConfig, dataset: Dataset) -> tuple[dict, dict
     print("=" * 55)
     print(f"  Modelo:      ADALINE Lineal")
     print(f"  Épocas:      {history_linear['epochs']}")
-    #TODO: fix this. son varios pesos, y no layer.weights[0, 0].
+    #TODO: corregir esto. son varios pesos, y no layer.weights[0, 0].
     print(f"  Peso final:  w={layer.weights[0, 0]:.4f}   (esperado ≈ 2.0)")
     print(f"  Bias final:  w₀={layer.bias[0]:.4f}   (esperado ≈ 5.0)")
     # TODO> para esta etapa, no usamos val. Como esta funcion de grafico depende de val, la comento por ahora
@@ -82,9 +83,11 @@ def _learning_study(cfg: ExperimentConfig, dataset: Dataset) -> tuple[dict, dict
     print(f"  Error final: {history_nonlinear['train_error'][-1]:.4f}")
 
     # TODO Ejercicio 1a/1b: analyze underfitting and saturation from these curves to select the best perceptron for Part 2
+    learning_hparams = f"epochs={EPOCHS} | eta={ETA} | mode={MODE} | beta={cfg.beta}"
     plot_learning_comparison(
         history_linear, history_nonlinear,
         output_path="output/experiment/ej1/learning/learning_comparison.png",
+        hparams_str=learning_hparams,
     )
     print("  Gráficos guardados en output/experiment/ej1/")
 
@@ -92,10 +95,17 @@ def _learning_study(cfg: ExperimentConfig, dataset: Dataset) -> tuple[dict, dict
 
 
 # TP3 K-Fold Cross Validation — see slides on model selection
-def _run_kfold(cfg: ExperimentConfig, dataset: Dataset, model_template: MultilayerPerceptron, run_label: str = "", output_dir: str = "output/experiment/ej1/folds/default") -> float:
-    """Runs k-fold cross validation (k=5) and returns avg validation error."""
+def _run_kfold(
+    cfg: ExperimentConfig,
+    dataset: Dataset,
+    model_template: MultilayerPerceptron,
+    run_label: str = "",
+    output_dir: str = "output/experiment/ej1/folds/default",
+    k: int = 5,
+    fold_filename_prefix: str = "",
+) -> tuple[float, list[float]]:
+    """Runs k-fold cross validation and returns (avg_val_error, per_fold_val_errors)."""
     # TODO: make k configurable via cfg (add k_folds field to ExperimentConfig)
-    k = 5
     splits = k_fold_split(dataset, k=k, seed=cfg.seed)
     # TODO: extend k_fold_split to return indices and remove this coupling.
     val_errors_final = []
@@ -122,14 +132,71 @@ def _run_kfold(cfg: ExperimentConfig, dataset: Dataset, model_template: Multilay
         )
 
         #TODO: evaluar
-        plot_error_curve(history, output_path=f"{output_dir}/fold_{i}_error.png")
+        fold_hparams = f"eta={cfg.eta} | epochs={cfg.epochs} | beta={cfg.beta} | k={k} | fold={i+1}/{k}"
+        plot_error_curve(
+            history,
+            output_path=f"{output_dir}/{fold_filename_prefix}fold_{i}_error.png",
+            hparams_str=fold_hparams,
+        )
         if history["val_error"]:
             prefix = f"  [{run_label}] " if run_label else "  "
             print(f"{prefix}Fold {i+1}/{k}: train={history['train_error'][-1]:.4f}  val={history['val_error'][-1]:.4f}")
             val_errors_final.append(history["val_error"][-1])
 
     avg_val_error = sum(val_errors_final) / len(val_errors_final) if val_errors_final else float("nan")
-    return avg_val_error
+    return avg_val_error, val_errors_final
+
+
+def _k_sensitivity_study(
+    cfg: ExperimentConfig,
+    dataset: Dataset,
+    model: MultilayerPerceptron,
+    best_params: dict,
+) -> None:
+    """K sensitivity study — re-runs k-fold with different k using the
+    best hyperparameters found by the grid search. Reports avg_val_error
+    and std across folds, and saves a plot with a ±1 std-dev band.
+    """
+    cfg_best = dataclasses.replace(
+        cfg,
+        eta=best_params["eta"],
+        epochs=best_params["epochs"],
+        beta=best_params["beta"],
+    )
+
+    hparams_str = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']}"
+
+    print(f"\n{'=' * 55}")
+    print(f"  FASE 4 — K Sensitivity Study (best params)")
+    print(f"{'=' * 55}")
+    print(f"  {'k':>3} | {'avg_val_error':>14} | {'std_dev':>8}")
+    print(f"  {'-' * 32}")
+
+    k_values = [3, 5, 7, 10]
+    results = []
+    for k in k_values:
+        k_output_dir = f"output/experiment/ej1/k_sensitivity/k{k}"
+        os.makedirs(k_output_dir, exist_ok=True)
+        avg_val_error, fold_errors = _run_kfold(
+            cfg_best,
+            dataset,
+            model,
+            run_label=f"k={k}",
+            output_dir=k_output_dir,
+            k=k,
+            fold_filename_prefix="",
+        )
+        std = float(np.std(fold_errors)) if fold_errors else 0.0
+        results.append({"k": k, "avg": avg_val_error, "std": std, "folds": fold_errors})
+        print(f"  {k:>3} | {avg_val_error:>14.4f} | {std:>8.4f}")
+
+    summary_dir = "output/experiment/ej1/k_sensitivity/summary"
+    os.makedirs(summary_dir, exist_ok=True)
+    plot_k_sensitivity(
+        results,
+        output_path=f"{summary_dir}/k_sensitivity_boxplot.png",
+        hparams_str=hparams_str,
+    )
 
 
 def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: MultilayerPerceptron) -> None:
@@ -168,7 +235,7 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
                 print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  beta={beta}")
                 cfg_variant = dataclasses.replace(cfg, eta=eta, epochs=ep, beta=beta)
                 combo_dir = f"output/experiment/ej1/folds/combo_{combo_n:02d}_eta{eta}_ep{ep}_beta{beta}"
-                avg_val_error = _run_kfold(cfg_variant, train_val_ds, model, run_label=f"{combo_n}/{total_combos}", output_dir=combo_dir)
+                avg_val_error, _ = _run_kfold(cfg_variant, train_val_ds, model, run_label=f"{combo_n}/{total_combos}", output_dir=combo_dir)
                 params = {"eta": eta, "epochs": ep, "beta": beta}
                 results.append((params, avg_val_error))
                 print(f"  → avg_val_error={avg_val_error:.4f}")
@@ -235,9 +302,14 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
         marker = "  ← best" if r["threshold"] == best_threshold else ""
         print(f"  {r['threshold']:>9.2f} | {int(r['tp']):>6} | {int(r['tn']):>6} | {int(r['fp']):>6} | {int(r['fn']):>6} | {r['f1']:>8.4f}{marker}")
 
-    plot_threshold_sweep(threshold_results, best_threshold, "output/experiment/ej1/threshold/threshold_sweep.png")
-    plot_confusion_matrix(true_pos, true_neg, false_pos, false_neg, best_threshold, "output/experiment/ej1/threshold/confusion_matrix.png")
+    threshold_hparams = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']} | k=5"
+    plot_threshold_sweep(threshold_results, best_threshold, "output/experiment/ej1/threshold/threshold_sweep.png", hparams_str=threshold_hparams)
+    plot_confusion_matrix(true_pos, true_neg, false_pos, false_neg, best_threshold, "output/experiment/ej1/threshold/confusion_matrix.png", hparams_str=threshold_hparams)
     # TODO Ejercicio 1c: report this threshold as recommendation to CompanyX
+
+    # K sensitivity study — k does not affect model weights, only the
+    # reliability of the generalization error estimate (TP3 Métricas y Sobreajuste)
+    _k_sensitivity_study(cfg, train_val_ds, model, best_params)
 
 
 def run(cfg: ExperimentConfig) -> None:
