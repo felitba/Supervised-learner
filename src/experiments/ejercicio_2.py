@@ -15,6 +15,8 @@ from src.optimizer.gradient_descent import GradientDescent
 from src.optimizer.adam import AdamOptimizer
 from src.optimizer.momentum import MomentumOptimizer
 from src.activation.tanh import TanhActivation
+from src.activation.logistic import LogisticActivation
+from src.activation.relu import ReLUActivation
 from src.network.multilayer_perceptron import MultilayerPerceptron
 from src.network.neuron_layer import NeuronLayer
 from src.config import ExperimentConfig
@@ -30,6 +32,14 @@ def _build_optimizer(cfg: ExperimentConfig):
     return GradientDescent(learning_rate=cfg.eta)
 
 
+def _build_activation(cfg: ExperimentConfig):
+    if cfg.activation == "logistic":
+        return LogisticActivation(beta=cfg.beta)
+    if cfg.activation == "relu":
+        return ReLUActivation()
+    return TanhActivation(beta=cfg.beta)
+
+
 def _build_model(cfg: ExperimentConfig) -> MultilayerPerceptron:
     """Construye el MLP dinámicamente a partir de cfg.architecture.
 
@@ -41,7 +51,7 @@ def _build_model(cfg: ExperimentConfig) -> MultilayerPerceptron:
         layers.append(NeuronLayer(
             n_inputs=cfg.architecture[i],
             n_neurons=cfg.architecture[i + 1],
-            activation=TanhActivation(beta=cfg.beta),
+            activation=_build_activation(cfg),
         ))
     return MultilayerPerceptron(layers)
 
@@ -152,8 +162,9 @@ def _generalization_study(
     # Por defecto en config: [784, 64, 32, 10]
     architectures = [[784, 64, 32, 10]]
     optimizers    = ["gradient_descent"]
+    activations   = ["tanh", "logistic", "relu"]
 
-    total_combos = len(etas) * len(epochs_list) * len(architectures) * len(optimizers)
+    total_combos = len(etas) * len(epochs_list) * len(architectures) * len(optimizers) * len(activations)
     print(f"\n{'=' * 60}")
     print(f"  FASE 2 — Grid Search + K-Fold ({total_combos} combinaciones)")
     print(f"{'=' * 60}")
@@ -164,24 +175,25 @@ def _generalization_study(
         for ep in epochs_list:
             for arch in architectures:
                 for opt in optimizers:
-                    combo_n += 1
-                    print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  arch={arch}  optimizer={opt}")
-                    cfg_variant   = dataclasses.replace(cfg, eta=eta, epochs=ep, architecture=arch, optimizer=opt)
-                    model_variant = _build_model(cfg_variant)
-                    combo_dir = (
-                        f"output/experiment/ej2/kfold/"
-                        f"combo_{combo_n:02d}_eta{eta}_ep{ep}_{opt}"
-                    )
-                    avg_accuracy, _ = _run_kfold(
-                        cfg_variant, dataset, int_labels, model_variant,
-                        run_label=f"{combo_n}/{total_combos}",
-                        output_dir=combo_dir,
-                    )
-                    results.append(({"eta": eta, "epochs": ep, "architecture": arch, "optimizer": opt}, avg_accuracy))
-                    print(
-                        f"  → Grid [eta={eta} epochs={ep} arch={arch} optimizer={opt}] "
-                        f"→ avg_accuracy={avg_accuracy:.4f}"
-                    )
+                    for act in activations:
+                        combo_n += 1
+                        print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  arch={arch}  optimizer={opt}  activation={act}")
+                        cfg_variant   = dataclasses.replace(cfg, eta=eta, epochs=ep, architecture=arch, optimizer=opt, activation=act)
+                        model_variant = _build_model(cfg_variant)
+                        combo_dir = (
+                            f"output/experiment/ej2/kfold/"
+                            f"combo_{combo_n:02d}_eta{eta}_ep{ep}_{opt}_{act}"
+                        )
+                        avg_accuracy, _ = _run_kfold(
+                            cfg_variant, dataset, int_labels, model_variant,
+                            run_label=f"{combo_n}/{total_combos}",
+                            output_dir=combo_dir,
+                        )
+                        results.append(({"eta": eta, "epochs": ep, "architecture": arch, "optimizer": opt, "activation": act}, avg_accuracy))
+                        print(
+                            f"  → Grid [eta={eta} epochs={ep} arch={arch} optimizer={opt} activation={act}] "
+                            f"→ avg_accuracy={avg_accuracy:.4f}"
+                        )
 
     # Seleccionamos por MAYOR accuracy (no menor error)
     best_params, best_accuracy = max(results, key=lambda x: x[1])
@@ -189,7 +201,7 @@ def _generalization_study(
     print(
         f"  Mejor combinación: eta={best_params['eta']}  "
         f"epochs={best_params['epochs']}  arch={best_params['architecture']}  "
-        f"optimizer={best_params['optimizer']}"
+        f"optimizer={best_params['optimizer']}  activation={best_params['activation']}"
     )
     print(f"  avg_accuracy={best_accuracy:.4f}")
     print(f"{'─' * 60}")
@@ -201,6 +213,7 @@ def _generalization_study(
         epochs=best_params["epochs"],
         architecture=best_params["architecture"],
         optimizer=best_params["optimizer"],
+        activation=best_params["activation"],
     )
 
     final_model   = _build_model(cfg_best)
@@ -217,7 +230,7 @@ def _generalization_study(
     os.makedirs("output/experiment/ej2/final", exist_ok=True)
     final_hparams = (
         f"eta={best_params['eta']} | epochs={best_params['epochs']} | "
-        f"arch={best_params['architecture']}"
+        f"arch={best_params['architecture']} | activation={best_params['activation']}"
     )
     plot_error_curve(
         history_final,

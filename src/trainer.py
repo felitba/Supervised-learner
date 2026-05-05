@@ -34,23 +34,25 @@ class Trainer:
         best_weights = None
         patience = 10
         strikes = 0
+        use_val = X_val is not None and zeta_val is not None
 
         for epoch in range(self.cfg.epochs): # ← "for a fixed number of epochs" (Clase 11)
             train_errors.append(train_fn(model, X_train, zeta_train))
-            # TODO: esto deberia ser opcional!!
-            val_error = self._evaluate_loss(model, X_val, zeta_val)
-            val_errors.append(val_error)
 
-            # ── CHECKPOINT ──────────────────────────────────────
-            if val_error < best_val_error:
-                best_val_error = val_error
-                best_weights = model.get_weights()  # save copy
-                strikes = 0
-            else:
-                strikes += 1
-                if strikes >= patience:
-                    print(f"Early stopping at epoch {epoch}")
-                    break
+            if use_val:
+                val_error = self._evaluate_loss(model, X_val, zeta_val)
+                val_errors.append(val_error)
+
+                # ── CHECKPOINT ──────────────────────────────────────
+                if val_error < best_val_error:
+                    best_val_error = val_error
+                    best_weights = model.get_weights()  # save copy
+                    strikes = 0
+                else:
+                    strikes += 1
+                    if strikes >= patience:
+                        print(f"Early stopping at epoch {epoch}")
+                        break
 
             if train_errors[-1] < self.cfg.epsilon:
                 break

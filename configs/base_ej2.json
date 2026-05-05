@@ -14,7 +14,7 @@
   "optimizer": "gradient_descent",
   "eta": 0.01,
   "training_mode": "minibatch",
-  "batch_size": 32,
+  "batch_size": 64,
   "epochs": 100,
   "epsilon": 0.001,
   "metrics": ["accuracy", "f1"]

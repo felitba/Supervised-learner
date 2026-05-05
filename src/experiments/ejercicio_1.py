@@ -10,6 +10,8 @@ from src.network.multilayer_perceptron import MultilayerPerceptron
 from src.network.neuron_layer import NeuronLayer
 from src.activation.identity import IdentityActivation
 from src.activation.tanh import TanhActivation
+from src.activation.logistic import LogisticActivation
+from src.activation.relu import ReLUActivation
 from src.activation.step import StepActivation
 from src.cost.mse import MSECost
 from src.optimizer.gradient_descent import GradientDescent
@@ -28,6 +30,20 @@ def _build_optimizer(cfg: ExperimentConfig):
     if cfg.optimizer == "momentum":
         return MomentumOptimizer(learning_rate=cfg.eta, beta=cfg.momentum_beta)
     return GradientDescent(learning_rate=cfg.eta)
+
+
+def _build_activation(cfg: ExperimentConfig):
+    if cfg.activation == "logistic":
+        return LogisticActivation(beta=cfg.beta)
+    if cfg.activation == "relu":
+        return ReLUActivation()
+    return TanhActivation(beta=cfg.beta)
+
+
+def _build_model_ej1(cfg: ExperimentConfig, n_inputs: int) -> MultilayerPerceptron:
+    return MultilayerPerceptron([
+        NeuronLayer(n_inputs=n_inputs, n_neurons=1, activation=_build_activation(cfg)),
+    ])
 
 
 def _learning_study(cfg: ExperimentConfig, dataset: Dataset) -> tuple[dict, dict]:
@@ -160,7 +176,6 @@ def _run_kfold(
 def _k_sensitivity_study(
     cfg: ExperimentConfig,
     dataset: Dataset,
-    model: MultilayerPerceptron,
     best_params: dict,
 ) -> None:
     """K sensitivity study — re-runs k-fold with different k using the
@@ -173,9 +188,12 @@ def _k_sensitivity_study(
         epochs=best_params["epochs"],
         beta=best_params["beta"],
         optimizer=best_params["optimizer"],
+        activation=best_params["activation"],
     )
 
-    hparams_str = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']} | optimizer={best_params['optimizer']}"
+    hparams_str = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']} | optimizer={best_params['optimizer']} | activation={best_params['activation']}"
+
+    n_inputs = dataset.X.shape[1]
 
     print(f"\n{'=' * 55}")
     print(f"  FASE 4 — K Sensitivity Study (best params)")
@@ -191,7 +209,7 @@ def _k_sensitivity_study(
         avg_val_error, fold_errors = _run_kfold(
             cfg_best,
             dataset,
-            model,
+            _build_model_ej1(cfg_best, n_inputs),
             run_label=f"k={k}",
             output_dir=k_output_dir,
             k=k,
@@ -210,7 +228,7 @@ def _k_sensitivity_study(
     )
 
 
-def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: MultilayerPerceptron) -> None:
+def _generalization_study(cfg: ExperimentConfig, dataset: Dataset) -> None:
     """Ejercicio 1c: Estudia generalización usando k-fold cross-validation.
 
     Recibe dataset SIN normalizar — la normalización se computa por fold
@@ -226,14 +244,17 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
     fraud_labels_full = load_csv(cfg.data_path, target_column="flagged_fraud").zeta
     test_fraud_labels = fraud_labels_full[test_idx]
 
-    # Step 2: Grid search over eta, epochs, beta, optimizer
-    # TODO: consider reducing grid size if runtime is too slow
-    etas       = [0.001, 0.01, 0.1]
-    epochs     = [100, 150, 200]
-    betas      = [0.5, 1.0, 2.0]
-    optimizers = ["gradient_descent", "momentum", "adam"]
+    n_inputs = train_val_ds.X.shape[1]
 
-    total_combos = len(etas) * len(epochs) * len(betas) * len(optimizers)
+    # Step 2: Grid search over eta, epochs, beta, optimizer, activation
+    # TODO: consider reducing grid size if runtime is too slow
+    etas        = [0.001, 0.01, 0.1]
+    epochs      = [100, 150, 200]
+    betas       = [0.5, 1.0, 2.0]
+    optimizers  = ["gradient_descent", "momentum", "adam"]
+    activations = ["tanh", "logistic", "relu"]
+
+    total_combos = len(etas) * len(epochs) * len(betas) * len(optimizers) * len(activations)
     print(f"\n{'=' * 55}")
     print(f"  FASE 2 — Grid Search + K-Fold ({total_combos} combinaciones)")
     print(f"{'=' * 55}")
@@ -244,28 +265,30 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
         for ep in epochs:
             for beta in betas:
                 for opt in optimizers:
-                    combo_n += 1
-                    print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  beta={beta}  optimizer={opt}")
-                    cfg_variant = dataclasses.replace(cfg, eta=eta, epochs=ep, beta=beta, optimizer=opt)
-                    combo_dir = f"output/experiment/ej1/folds/combo_{combo_n:02d}_eta{eta}_ep{ep}_beta{beta}_{opt}"
-                    avg_val_error, _ = _run_kfold(cfg_variant, train_val_ds, model, run_label=f"{combo_n}/{total_combos}", output_dir=combo_dir)
-                    params = {"eta": eta, "epochs": ep, "beta": beta, "optimizer": opt}
-                    results.append((params, avg_val_error))
-                    print(f"  → avg_val_error={avg_val_error:.4f}")
+                    for act in activations:
+                        combo_n += 1
+                        print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  beta={beta}  optimizer={opt}  activation={act}")
+                        cfg_variant   = dataclasses.replace(cfg, eta=eta, epochs=ep, beta=beta, optimizer=opt, activation=act)
+                        model_variant = _build_model_ej1(cfg_variant, n_inputs)
+                        combo_dir     = f"output/experiment/ej1/folds/combo_{combo_n:02d}_eta{eta}_ep{ep}_beta{beta}_{opt}_{act}"
+                        avg_val_error, _ = _run_kfold(cfg_variant, train_val_ds, model_variant, run_label=f"{combo_n}/{total_combos}", output_dir=combo_dir)
+                        params = {"eta": eta, "epochs": ep, "beta": beta, "optimizer": opt, "activation": act}
+                        results.append((params, avg_val_error))
+                        print(f"  → avg_val_error={avg_val_error:.4f}")
 
     best_params, best_val_error = min(results, key=lambda x: x[1])
     print(f"\n{'─' * 55}")
-    print(f"  Mejor combinacion: eta={best_params['eta']}  epochs={best_params['epochs']}  beta={best_params['beta']}  optimizer={best_params['optimizer']}")
+    print(f"  Mejor combinacion: eta={best_params['eta']}  epochs={best_params['epochs']}  beta={best_params['beta']}  optimizer={best_params['optimizer']}  activation={best_params['activation']}")
     print(f"  avg_val_error={best_val_error:.4f}")
     print(f"{'─' * 55}")
 
     # Step 3: Train final model on full train_val with best params (no folds here — this is the final model)
-    cfg_best = dataclasses.replace(cfg, eta=best_params["eta"], epochs=best_params["epochs"], beta=best_params["beta"], optimizer=best_params["optimizer"])
+    cfg_best = dataclasses.replace(cfg, eta=best_params["eta"], epochs=best_params["epochs"], beta=best_params["beta"], optimizer=best_params["optimizer"], activation=best_params["activation"])
 
     norm_train_val_X,    norm_test_X    = fit_normalize(train_val_ds.X,    test_ds.X)
     norm_train_val_zeta, = fit_normalize(train_val_ds.zeta)
 
-    final_model = model.clone()
+    final_model = _build_model_ej1(cfg_best, n_inputs)
     final_trainer = Trainer(
         cost_fn=MSECost(),
         optimizer=_build_optimizer(cfg_best),
@@ -315,14 +338,14 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
         marker = "  ← best" if r["threshold"] == best_threshold else ""
         print(f"  {r['threshold']:>9.2f} | {int(r['tp']):>6} | {int(r['tn']):>6} | {int(r['fp']):>6} | {int(r['fn']):>6} | {r['f1']:>8.4f}{marker}")
 
-    threshold_hparams = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']} | optimizer={best_params['optimizer']} | k=5"
+    threshold_hparams = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']} | optimizer={best_params['optimizer']} | activation={best_params['activation']} | k=5"
     plot_threshold_sweep(threshold_results, best_threshold, "output/experiment/ej1/threshold/threshold_sweep.png", hparams_str=threshold_hparams)
     plot_confusion_matrix(true_pos, true_neg, false_pos, false_neg, best_threshold, "output/experiment/ej1/threshold/confusion_matrix.png", hparams_str=threshold_hparams)
     # TODO Ejercicio 1c: report this threshold as recommendation to CompanyX
 
     # K sensitivity study — k does not affect model weights, only the
     # reliability of the generalization error estimate (TP3 Métricas y Sobreajuste)
-    _k_sensitivity_study(cfg, train_val_ds, model, best_params)
+    _k_sensitivity_study(cfg, train_val_ds, best_params)
 
 
 def run(cfg: ExperimentConfig) -> None:
@@ -338,12 +361,5 @@ def run(cfg: ExperimentConfig) -> None:
     # Parte 1: comparar capacidad de aprendizaje lineal vs no lineal (Ejercicio 1a/1b)
     _learning_study(cfg, dataset)
 
-    # Parte 2: estudio de generalización con el modelo no lineal (Tanh)
-    # Tanh se prefiere sobre lineal: la salida acotada es más apropiada para
-    # estimación de probabilidad de fraude que la salida lineal no acotada.
-    # TODO: Verify this choice against Part 1 curves before final submission
-    n_inputs = dataset.X.shape[1]
-    model = MultilayerPerceptron([
-        NeuronLayer(n_inputs=n_inputs, n_neurons=1, activation=TanhActivation(beta=cfg.beta)),
-    ])
-    _generalization_study(cfg, dataset, model)
+    # Parte 2: estudio de generalización — la activación se elige por grid search
+    _generalization_study(cfg, dataset)
