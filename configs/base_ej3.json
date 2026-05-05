@@ -14,8 +14,8 @@
   "optimizer": "adam",
   "eta": 0.001,
   "training_mode": "minibatch",
-  "batch_size": 32,
-  "epochs": 200,
-  "epsilon": 0.0005,
+  "batch_size": 16,
+  "epochs": 100,
+  "epsilon": 0.005,
   "metrics": ["accuracy", "f1"]
 }
