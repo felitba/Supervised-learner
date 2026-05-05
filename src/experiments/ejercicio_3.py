@@ -47,16 +47,41 @@ def _build_activation(name: str, beta: float):
         return IdentityActivation()
     raise ValueError(f"Unknown activation: {name}")
 
+def _shift_image(img: np.ndarray, dx: int, dy: int) -> np.ndarray:
+    # img is (28, 28)
+    shifted = np.zeros_like(img)
+    x_from = max(0, dx)
+    x_to = min(28, 28 + dx)
+    y_from = max(0, dy)
+    y_to = min(28, 28 + dy)
 
+    shifted[x_from:x_to, y_from:y_to] = img[x_from - dx:x_to - dx, y_from - dy:y_to - dy]
+    return shifted
+
+def augment_shift(X: np.ndarray, max_shift: int = 2) -> np.ndarray:
+    X_img = X.reshape(-1, 28, 28)
+    out = []
+    for img in X_img:
+        dx = np.random.randint(-max_shift, max_shift + 1)
+        dy = np.random.randint(-max_shift, max_shift + 1)
+        out.append(_shift_image(img, dx, dy))
+    return np.array(out).reshape(-1, 784)
+
+def augment_noise(X: np.ndarray, std: float = 0.1, clip: tuple[float, float] | None = (0.0, 1.0)) -> np.ndarray:
+    noise = np.random.normal(0.0, std, size=X.shape)
+    X_aug = X + noise
+    if clip is not None:
+        X_aug = np.clip(X_aug, clip[0], clip[1])
+    return X_aug
 
 def grid_search(cfg: ExperimentConfig, X, zeta):
-    etas = [0.1]
-    epochs_list = [500]
+    etas = [0.0005]
+    epochs_list = [300]
     architectures = [
 
-        [784, 256, 128, 10],
+        [784, 256, 64, 10],
     ]
-    optimizers = ["momentum"]
+    optimizers = [ "adam"]
     activations = ["relu"]
 
     results = []
@@ -136,6 +161,19 @@ def run(cfg: ExperimentConfig) -> None:
 
     zeta = one_hot_encode(df_train["label"].values, n_classes=10)
 
+    # noise augmentation
+    print(f"augmenting dataset from len {len(X)}")
+    X_aug_noise = augment_noise(X, std=0.1)
+    X = np.concatenate([X, X_aug_noise], axis=0)
+    zeta = np.concatenate([zeta, zeta], axis=0)
+    print(f"After noise augmentation: len(X)={len(X)}")
+
+    # shift augmentation
+    # X_aug_shift = augment_shift(X, max_shift=2)
+    # X = np.concatenate([X, X_aug_shift], axis=0)
+    # zeta = np.concatenate([zeta, zeta], axis=0)
+    # print(f"After shift augmentation: len(X)={len(X)}")
+
     # 1) GRID SEARCH to find best hyperparams
     best_params, _ = grid_search(cfg, X, zeta)
 
@@ -146,6 +184,7 @@ def run(cfg: ExperimentConfig) -> None:
         epochs=best_params["epochs"],
         architecture=best_params["arch"],
         optimizer=best_params["opt"],
+        activation=best_params["act"],
     )
 
     hidden_act = _build_activation(best_params["act"], cfg_best.beta)
@@ -165,13 +204,15 @@ def run(cfg: ExperimentConfig) -> None:
     ))
     model_template = MultilayerPerceptron(layers)
 
-    # 3) K-FOLD on full digits.csv with best hyperparams
-    print("Running K-Fold...")
-    dataset = Dataset(X=X, zeta=zeta)
-    avg_acc, fold_accs = _run_kfold_multiclass(cfg_best, dataset, model_template, k=5)
-    print(f"\nBest-params k-fold avg_accuracy={avg_acc:.4f}")
+    # 3) Train/val split so validation is always provided
+    train_ds, val_ds, _, _ = Dataset(X=X, zeta=zeta).split(
+        train=cfg_best.split_train,
+        val=cfg_best.split_val,
+        test=cfg_best.split_test,
+        seed=cfg_best.seed,
+    )
 
-    # 4) Optional: train final model on all digits.csv
+    # 4) Train final model with validation
     final_model = model_template.clone()
     final_trainer = Trainer(
         cost_fn=CategoricalCrossEntropyCost(),
@@ -181,8 +222,8 @@ def run(cfg: ExperimentConfig) -> None:
     )
     history = final_trainer.fit(
         final_model,
-        dataset.X, dataset.zeta,
-        X_val=None, zeta_val=None,
+        train_ds.X, train_ds.zeta,
+        val_ds.X,   val_ds.zeta,
     )
     plot_error_curve(history, output_path="output/experiment/ej3/learning_curve.png")
 
@@ -193,7 +234,6 @@ def run(cfg: ExperimentConfig) -> None:
 
     confusion, metrics = evaluate_multiclass(final_model, X_test, y_test)
     print_report(confusion, metrics)
-
 def _run_kfold_multiclass(
     cfg: ExperimentConfig,
     dataset: Dataset,
