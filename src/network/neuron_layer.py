@@ -8,12 +8,13 @@ class NeuronLayer:
     Guarda x, h y V durante el forward para usarlos en backprop.
     """
 
-    def __init__(self, n_inputs: int, n_neurons: int, activation: ActivationFunction) -> None:
+    def __init__(self, n_inputs: int, n_neurons: int, activation: ActivationFunction, weight_initializator=None) -> None:
         self.n_inputs = n_inputs
         self.n_neurons = n_neurons
         self.activation = activation
         rng = np.random.default_rng()
-        self.weights = rng.standard_normal((n_inputs, n_neurons)) * np.sqrt(1.0 / n_inputs) # temporary (?
+        # self.weights = rng.standard_normal((n_inputs, n_neurons)) * np.sqrt(1.0 / n_inputs) # Xavier -> for tanh
+        self.weights = weight_initializator() if weight_initializator is not None else rng.standard_normal((n_inputs, n_neurons)) * np.sqrt(2.0 / n_inputs) # He -> for relu
         self.bias: Array = np.zeros(n_neurons)
         self._x: Array = np.empty(n_inputs)
         self._h: Array = np.empty(n_neurons)

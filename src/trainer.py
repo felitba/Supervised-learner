@@ -10,13 +10,14 @@ from src.network.model import Model
 class Trainer:
     """Loop de entrenamiento genérico. No sabe nada de ejercicios ni de CSVs."""
 
-    def __init__(self, cost_fn: CostFunction, optimizer: Optimizer, metrics: list[Metric], cfg: ExperimentConfig, regularization=False) -> None:
+    def __init__(self, cost_fn: CostFunction, optimizer: Optimizer, metrics: list[Metric], cfg: ExperimentConfig, regularization=False, patience=50) -> None:
         self.cost_fn = cost_fn
         self.optimizer = optimizer
         self.metrics = metrics
         self.cfg = cfg
-        self.ridge_alpha = 1
+        self.ridge_alpha = 0.0001
         self.regularization = regularization
+        self.patience = patience
 
     def fit(self, model: Model, X_train: Array, zeta_train: Array, X_val: Array| None, zeta_val: Array|None) -> dict:
         """Entrena el modelo y devuelve el historial de errores por época."""
@@ -32,7 +33,6 @@ class Trainer:
         train_errors, val_errors = [], []
         best_val_error = float('inf')
         best_weights = None
-        patience = 10
         strikes = 0
         use_val = X_val is not None and zeta_val is not None
 
@@ -43,16 +43,15 @@ class Trainer:
                 val_error = self._evaluate_loss(model, X_val, zeta_val)
                 val_errors.append(val_error)
 
-                # ── CHECKPOINT ──────────────────────────────────────
-                if val_error < best_val_error:
-                    best_val_error = val_error
-                    best_weights = model.get_weights()  # save copy
-                    strikes = 0
-                else:
-                    strikes += 1
-                    if strikes >= patience:
-                        print(f"Early stopping at epoch {epoch}")
-                        break
+            if val_error < best_val_error:
+                best_val_error = val_error
+                best_weights = model.get_weights()  # save copy
+                strikes = 0
+            else:
+                strikes += 1
+                if strikes >= self.patience:
+                    print(f"Early stopping at epoch {epoch}")
+                    break
 
             if train_errors[-1] < self.cfg.epsilon:
                 break
@@ -129,27 +128,26 @@ class Trainer:
             batch_idx = indices[start:start + self.cfg.batch_size]
             batch_size = len(batch_idx)
             model.zero_grads()
+
             for i in batch_idx:
                 xi, zi = X[i], zeta[i]
                 O = model.forward(xi)
                 model.backward(self.cost_fn.gradient(zi, O))
-
-                # We are optionally using the ridge regression regularization
-                l2 = 0
-                if self.regularization:
-                    l2 = 0.5 * self.ridge_alpha * sum(np.sum(w ** 2) for (w, b) in model.get_weights())
-
-                total_loss += self.cost_fn.compute(zi, O) + l2
+                total_loss += self.cost_fn.compute(zi, O)
 
             avg_grads = [(gw / batch_size, gb / batch_size) for gw, gb in model.get_grads()]
+
             if self.regularization:
                 weights = model.get_weights()
+                l2_loss = 0.5 * self.ridge_alpha * sum(np.sum(w ** 2) for w, b in weights)
+                total_loss += l2_loss * batch_size
                 avg_grads = [
-                    (gw + self.ridge_alpha * w, gb)  # L2 only on weights
+                    (gw + self.ridge_alpha * w, gb)
                     for (gw, gb), (w, b) in zip(avg_grads, weights)
                 ]
 
             model.set_weights(self.optimizer.update(model.get_weights(), avg_grads))
+
         return total_loss / n
 
     def _train_epoch_batch(self, model: Model, X: Array, zeta: Array) -> float:
@@ -161,11 +159,9 @@ class Trainer:
             O = model.forward(xi)
             model.backward(self.cost_fn.gradient(zi, O))
 
-            # We are optionally using the ridge regression regularization
             l2 = 0
             if self.regularization:
                 l2 = 0.5 * self.ridge_alpha * sum(np.sum(w ** 2) for (w, b) in model.get_weights())
-
 
             total_loss += self.cost_fn.compute(zi, O) + l2
         avg_grads = [(gw / n, gb / n) for gw, gb in model.get_grads()]
