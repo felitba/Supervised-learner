@@ -49,12 +49,13 @@ def _build_activation(name: str, beta: float):
 
 
 def grid_search(cfg: ExperimentConfig, X, zeta):
-    etas = [0.0005]
+    etas = [0.0005, 0.0001, 0.1, 0.05]
     epochs_list = [75]
     architectures = [
+        [784, 128, 64, 10],
         [784, 256, 128, 10],
     ]
-    optimizers = ["adam"]
+    optimizers = ["adam", "momentum"]
     activations = ["relu"]
 
     results = []
@@ -102,7 +103,7 @@ def grid_search(cfg: ExperimentConfig, X, zeta):
                             optimizer=_build_optimizer(cfg_variant),  # reuse from ejercicio_2
                             metrics=[],
                             cfg=cfg_variant,
-                            regularization=False,
+
                         )
 
                         history = trainer.fit(model, train_ds.X, train_ds.zeta, val_ds.X, val_ds.zeta)
@@ -171,28 +172,12 @@ def run(cfg: ExperimentConfig) -> None:
         seed=cfg_best.seed,
     )
 
-    # DEBUG 2 — check model output before any training
-    sample_output = model.forward(train_ds.X[0])
-    print(f"\nRaw output before training: {np.round(sample_output, 4)}")
-    print(f"Argmax before training:     {np.argmax(sample_output)}")
-    print(f"True label of sample 0:     {np.argmax(train_ds.zeta[0])}")
-
-    # DEBUG 3 — check gradient on first sample
-    O    = model.forward(train_ds.X[0])
-    grad = CategoricalCrossEntropyCost().gradient(train_ds.zeta[0], O)
-    print(f"\nGradient on first sample:   {np.round(grad, 4)}")
-    print(f"Gradient max abs value:     {np.abs(grad).max():.6f}")
-
-    # Train
-    from src.experiments.ejercicio_2 import _build_optimizer  # reuse helper
-
-    # ...
     trainer = Trainer(
         cost_fn=CategoricalCrossEntropyCost(),
         optimizer=_build_optimizer(cfg_best),
         metrics=[],
         cfg=cfg_best,
-        regularization=False,
+
     )
 
     history = trainer.fit(
@@ -200,19 +185,6 @@ def run(cfg: ExperimentConfig) -> None:
         train_ds.X, train_ds.zeta,
         val_ds.X,   val_ds.zeta,
     )
-
-    for i in range(0, len(history['train_error']), 10):
-        print(f"Epoch {i:3d}: {history['train_error'][i]:.6f}")
-
-    # DEBUG 4 — check loss movement
-    print(f"\nFirst 5 train errors: {[round(e, 6) for e in history['train_error'][:5]]}")
-    print(f"Last  5 train errors: {[round(e, 6) for e in history['train_error'][-5:]]}")
-
-    # DEBUG 5 — check model output after training
-    sample_output_after = model.forward(train_ds.X[0])
-    print(f"\nRaw output after training:  {np.round(sample_output_after, 4)}")
-    print(f"Argmax after training:      {np.argmax(sample_output_after)}")
-    print(f"True label of sample 0:     {np.argmax(train_ds.zeta[0])}")
 
     plot_error_curve(history, output_path="output/experiment/ej3/learning_curve.png")
 

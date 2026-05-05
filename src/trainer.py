@@ -10,13 +10,13 @@ from src.network.model import Model
 class Trainer:
     """Loop de entrenamiento genérico. No sabe nada de ejercicios ni de CSVs."""
 
-    def __init__(self, cost_fn: CostFunction, optimizer: Optimizer, metrics: list[Metric], cfg: ExperimentConfig, regularization=False) -> None:
+    def __init__(self, cost_fn: CostFunction, optimizer: Optimizer, metrics: list[Metric], cfg: ExperimentConfig) -> None:
         self.cost_fn = cost_fn
         self.optimizer = optimizer
         self.metrics = metrics
         self.cfg = cfg
         self.ridge_alpha = 1
-        self.regularization = regularization
+
 
     def fit(self, model: Model, X_train: Array, zeta_train: Array, X_val: Array| None, zeta_val: Array|None) -> dict:
         """Entrena el modelo y devuelve el historial de errores por época."""
@@ -132,20 +132,11 @@ class Trainer:
                 O = model.forward(xi)
                 model.backward(self.cost_fn.gradient(zi, O))
 
-                # We are optionally using the ridge regression regularization
-                l2 = 0
-                if self.regularization:
-                    l2 = 0.5 * self.ridge_alpha * sum(np.sum(w ** 2) for (w, b) in model.get_weights())
 
-                total_loss += self.cost_fn.compute(zi, O) + l2
+
+                total_loss += self.cost_fn.compute(zi, O)
 
             avg_grads = [(gw / batch_size, gb / batch_size) for gw, gb in model.get_grads()]
-            if self.regularization:
-                weights = model.get_weights()
-                avg_grads = [
-                    (gw + self.ridge_alpha * w, gb)  # L2 only on weights
-                    for (gw, gb), (w, b) in zip(avg_grads, weights)
-                ]
 
             model.set_weights(self.optimizer.update(model.get_weights(), avg_grads))
         return total_loss / n
@@ -158,14 +149,7 @@ class Trainer:
         for xi, zi in zip(X, zeta):
             O = model.forward(xi)
             model.backward(self.cost_fn.gradient(zi, O))
-
-            # We are optionally using the ridge regression regularization
-            l2 = 0
-            if self.regularization:
-                l2 = 0.5 * self.ridge_alpha * sum(np.sum(w ** 2) for (w, b) in model.get_weights())
-
-
-            total_loss += self.cost_fn.compute(zi, O) + l2
+            total_loss += self.cost_fn.compute(zi, O)
         avg_grads = [(gw / n, gb / n) for gw, gb in model.get_grads()]
         model.set_weights(self.optimizer.update(model.get_weights(), avg_grads))
         return total_loss / n
