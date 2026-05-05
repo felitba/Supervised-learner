@@ -13,11 +13,21 @@ from src.activation.tanh import TanhActivation
 from src.activation.step import StepActivation
 from src.cost.mse import MSECost
 from src.optimizer.gradient_descent import GradientDescent
+from src.optimizer.adam import AdamOptimizer
+from src.optimizer.momentum import MomentumOptimizer
 from src.trainer import Trainer
 from src.config import ExperimentConfig
 from analysis.plots import plot_regression, plot_error_curve, plot_learning_comparison, plot_threshold_sweep, plot_confusion_matrix, plot_k_sensitivity
 from src.metric.classify_data import classify_data
 from src.metric.f1 import F1Metric
+
+
+def _build_optimizer(cfg: ExperimentConfig):
+    if cfg.optimizer == "adam":
+        return AdamOptimizer(learning_rate=cfg.eta, beta1=cfg.adam_beta1, beta2=cfg.adam_beta2)
+    if cfg.optimizer == "momentum":
+        return MomentumOptimizer(learning_rate=cfg.eta, beta=cfg.momentum_beta)
+    return GradientDescent(learning_rate=cfg.eta)
 
 
 def _learning_study(cfg: ExperimentConfig, dataset: Dataset) -> tuple[dict, dict]:
@@ -121,7 +131,7 @@ def _run_kfold(
         #TODO: entrenar
         trainer = Trainer(
             cost_fn=MSECost(),
-            optimizer=GradientDescent(learning_rate=cfg.eta),
+            optimizer=_build_optimizer(cfg),
             metrics=[],
             cfg=cfg,
         )
@@ -162,9 +172,10 @@ def _k_sensitivity_study(
         eta=best_params["eta"],
         epochs=best_params["epochs"],
         beta=best_params["beta"],
+        optimizer=best_params["optimizer"],
     )
 
-    hparams_str = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']}"
+    hparams_str = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']} | optimizer={best_params['optimizer']}"
 
     print(f"\n{'=' * 55}")
     print(f"  FASE 4 — K Sensitivity Study (best params)")
@@ -215,13 +226,14 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
     fraud_labels_full = load_csv(cfg.data_path, target_column="flagged_fraud").zeta
     test_fraud_labels = fraud_labels_full[test_idx]
 
-    # Step 2: Grid search over eta, epochs, beta
+    # Step 2: Grid search over eta, epochs, beta, optimizer
     # TODO: consider reducing grid size if runtime is too slow
-    etas   = [0.001, 0.01, 0.1]
-    epochs = [100, 150, 200]
-    betas  = [0.5, 1.0, 2.0]
+    etas       = [0.001, 0.01, 0.1]
+    epochs     = [100, 150, 200]
+    betas      = [0.5, 1.0, 2.0]
+    optimizers = ["gradient_descent", "momentum", "adam"]
 
-    total_combos = len(etas) * len(epochs) * len(betas)
+    total_combos = len(etas) * len(epochs) * len(betas) * len(optimizers)
     print(f"\n{'=' * 55}")
     print(f"  FASE 2 — Grid Search + K-Fold ({total_combos} combinaciones)")
     print(f"{'=' * 55}")
@@ -231,23 +243,24 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
     for eta in etas:
         for ep in epochs:
             for beta in betas:
-                combo_n += 1
-                print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  beta={beta}")
-                cfg_variant = dataclasses.replace(cfg, eta=eta, epochs=ep, beta=beta)
-                combo_dir = f"output/experiment/ej1/folds/combo_{combo_n:02d}_eta{eta}_ep{ep}_beta{beta}"
-                avg_val_error, _ = _run_kfold(cfg_variant, train_val_ds, model, run_label=f"{combo_n}/{total_combos}", output_dir=combo_dir)
-                params = {"eta": eta, "epochs": ep, "beta": beta}
-                results.append((params, avg_val_error))
-                print(f"  → avg_val_error={avg_val_error:.4f}")
+                for opt in optimizers:
+                    combo_n += 1
+                    print(f"\n  ({combo_n}/{total_combos}) eta={eta}  epochs={ep}  beta={beta}  optimizer={opt}")
+                    cfg_variant = dataclasses.replace(cfg, eta=eta, epochs=ep, beta=beta, optimizer=opt)
+                    combo_dir = f"output/experiment/ej1/folds/combo_{combo_n:02d}_eta{eta}_ep{ep}_beta{beta}_{opt}"
+                    avg_val_error, _ = _run_kfold(cfg_variant, train_val_ds, model, run_label=f"{combo_n}/{total_combos}", output_dir=combo_dir)
+                    params = {"eta": eta, "epochs": ep, "beta": beta, "optimizer": opt}
+                    results.append((params, avg_val_error))
+                    print(f"  → avg_val_error={avg_val_error:.4f}")
 
     best_params, best_val_error = min(results, key=lambda x: x[1])
     print(f"\n{'─' * 55}")
-    print(f"  Mejor combinacion: eta={best_params['eta']}  epochs={best_params['epochs']}  beta={best_params['beta']}")
+    print(f"  Mejor combinacion: eta={best_params['eta']}  epochs={best_params['epochs']}  beta={best_params['beta']}  optimizer={best_params['optimizer']}")
     print(f"  avg_val_error={best_val_error:.4f}")
     print(f"{'─' * 55}")
 
     # Step 3: Train final model on full train_val with best params (no folds here — this is the final model)
-    cfg_best = dataclasses.replace(cfg, eta=best_params["eta"], epochs=best_params["epochs"], beta=best_params["beta"])
+    cfg_best = dataclasses.replace(cfg, eta=best_params["eta"], epochs=best_params["epochs"], beta=best_params["beta"], optimizer=best_params["optimizer"])
 
     norm_train_val_X,    norm_test_X    = fit_normalize(train_val_ds.X,    test_ds.X)
     norm_train_val_zeta, = fit_normalize(train_val_ds.zeta)
@@ -255,7 +268,7 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
     final_model = model.clone()
     final_trainer = Trainer(
         cost_fn=MSECost(),
-        optimizer=GradientDescent(learning_rate=cfg_best.eta),
+        optimizer=_build_optimizer(cfg_best),
         metrics=[],
         cfg=cfg_best,
     )
@@ -302,7 +315,7 @@ def _generalization_study(cfg: ExperimentConfig, dataset: Dataset, model: Multil
         marker = "  ← best" if r["threshold"] == best_threshold else ""
         print(f"  {r['threshold']:>9.2f} | {int(r['tp']):>6} | {int(r['tn']):>6} | {int(r['fp']):>6} | {int(r['fn']):>6} | {r['f1']:>8.4f}{marker}")
 
-    threshold_hparams = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']} | k=5"
+    threshold_hparams = f"eta={best_params['eta']} | epochs={best_params['epochs']} | beta={best_params['beta']} | optimizer={best_params['optimizer']} | k=5"
     plot_threshold_sweep(threshold_results, best_threshold, "output/experiment/ej1/threshold/threshold_sweep.png", hparams_str=threshold_hparams)
     plot_confusion_matrix(true_pos, true_neg, false_pos, false_neg, best_threshold, "output/experiment/ej1/threshold/confusion_matrix.png", hparams_str=threshold_hparams)
     # TODO Ejercicio 1c: report this threshold as recommendation to CompanyX
