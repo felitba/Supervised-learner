@@ -4,7 +4,6 @@ import dataclasses
 import numpy as np
 import pandas as pd
 
-from data_management.splitter import k_fold_split
 from src.optimizer.gradient_descent import GradientDescent
 from src.activation.identity import IdentityActivation
 from src.activation.relu import ReLUActivation
@@ -45,6 +44,7 @@ def _build_weight_initializer(act_name: str, n_inputs: int, n_neurons: int):
         # Xavier Initialization (variance = 1.0 / n_inputs) for Tanh, Softmax, etc.
         return lambda: rng.standard_normal((n_inputs, n_neurons)) * np.sqrt(1.0 / n_inputs)
 
+
 def _build_activation(name: str, beta: float):
     name = name.lower()
     if name == "tanh":
@@ -59,16 +59,16 @@ def _build_activation(name: str, beta: float):
         return IdentityActivation()
     raise ValueError(f"Unknown activation: {name}")
 
+
 def _shift_image(img: np.ndarray, dx: int, dy: int) -> np.ndarray:
-    # img is (28, 28)
     shifted = np.zeros_like(img)
     x_from = max(0, dx)
     x_to = min(28, 28 + dx)
     y_from = max(0, dy)
     y_to = min(28, 28 + dy)
-
     shifted[x_from:x_to, y_from:y_to] = img[x_from - dx:x_to - dx, y_from - dy:y_to - dy]
     return shifted
+
 
 def augment_shift(X: np.ndarray, max_shift: int = 2) -> np.ndarray:
     X_img = X.reshape(-1, 28, 28)
@@ -79,23 +79,24 @@ def augment_shift(X: np.ndarray, max_shift: int = 2) -> np.ndarray:
         out.append(_shift_image(img, dx, dy))
     return np.array(out).reshape(-1, 784)
 
-def augment_noise(X: np.ndarray, std: float = 0.1, clip: tuple[float, float] | None = (0.0, 1.0)) -> np.ndarray:
+
+def augment_noise(X: np.ndarray, std: float = 0.05, clip: tuple[float, float] | None = (0.0, 1.0)) -> np.ndarray:
     noise = np.random.normal(0.0, std, size=X.shape)
     X_aug = X + noise
     if clip is not None:
         X_aug = np.clip(X_aug, clip[0], clip[1])
     return X_aug
 
+
 def grid_search(cfg: ExperimentConfig, X, zeta):
     etas = [0.0005]
-    epochs_list = [300]
+    epochs_list = [500]
     architectures = [
-
         [784, 256, 64, 10],
     ]
-    optimizers = [ "adam"]
+    optimizers = ["adam"]
     activations = ["relu"]
-    patience = [10]
+    patience = [30]
 
     results = []
     combo_n = 0
@@ -138,6 +139,7 @@ def grid_search(cfg: ExperimentConfig, X, zeta):
                             ))
                             model = MultilayerPerceptron(layers)
 
+                            # split, then augment only train
                             train_ds, val_ds, _, _ = Dataset(X=X, zeta=zeta).split(
                                 train=cfg_variant.split_train,
                                 val=cfg_variant.split_val,
@@ -145,9 +147,15 @@ def grid_search(cfg: ExperimentConfig, X, zeta):
                                 seed=cfg_variant.seed,
                             )
 
+                            X_aug = augment_noise(train_ds.X, std=0.05)
+                            train_ds = Dataset(
+                                X=np.concatenate([train_ds.X, X_aug], axis=0),
+                                zeta=np.concatenate([train_ds.zeta, train_ds.zeta], axis=0)
+                            )
+
                             trainer = Trainer(
                                 cost_fn=CategoricalCrossEntropyCost(),
-                                optimizer=_build_optimizer(cfg_variant),  # reuse from ejercicio_2
+                                optimizer=_build_optimizer(cfg_variant),
                                 metrics=[],
                                 cfg=cfg_variant,
                                 regularization=True,
@@ -164,13 +172,12 @@ def grid_search(cfg: ExperimentConfig, X, zeta):
 
                             plot_error_curve(history, output_path=f"output/experiment/ej3/learning_curve_{arch}_{opt}_{act}_{eta}_{epochs}_{patience}.png")
 
-                            results.append(({"eta": eta, "epochs": epochs, "arch": arch, "opt": opt, "act":act, "patience": patience}, val_accuracy))
+                            results.append(({"eta": eta, "epochs": epochs, "arch": arch, "opt": opt, "act": act, "patience": patience}, val_accuracy))
                             print(f"→ val_accuracy={val_accuracy:.4f}")
 
     best_params, best_acc = max(results, key=lambda x: x[1])
     print("\nBest combo:", best_params, "val_accuracy=", best_acc)
     return best_params, best_acc
-
 
 
 def run(cfg: ExperimentConfig) -> None:
@@ -185,23 +192,10 @@ def run(cfg: ExperimentConfig) -> None:
 
     zeta = one_hot_encode(df_train["label"].values, n_classes=10)
 
-    # noise augmentation
-    print(f"augmenting dataset from len {len(X)}")
-    X_aug_noise = augment_noise(X, std=0.1)
-    X = np.concatenate([X, X_aug_noise], axis=0)
-    zeta = np.concatenate([zeta, zeta], axis=0)
-    print(f"After noise augmentation: len(X)={len(X)}")
-
-    # shift augmentation
-    # X_aug_shift = augment_shift(X, max_shift=2)
-    # X = np.concatenate([X, X_aug_shift], axis=0)
-    # zeta = np.concatenate([zeta, zeta], axis=0)
-    # print(f"After shift augmentation: len(X)={len(X)}")
-
     # 1) GRID SEARCH to find best hyperparams
     best_params, _ = grid_search(cfg, X, zeta)
 
-    # 2) Build model template with best hyperparams
+    # 2) Build model with best hyperparams
     cfg_best = dataclasses.replace(
         cfg,
         eta=best_params["eta"],
@@ -228,7 +222,7 @@ def run(cfg: ExperimentConfig) -> None:
     ))
     model_template = MultilayerPerceptron(layers)
 
-    # 3) Train/val split so validation is always provided
+    # 3) Split
     train_ds, val_ds, _, _ = Dataset(X=X, zeta=zeta).split(
         train=cfg_best.split_train,
         val=cfg_best.split_val,
@@ -236,41 +230,52 @@ def run(cfg: ExperimentConfig) -> None:
         seed=cfg_best.seed,
     )
 
-    # 4) Train final model with validation
+    # augment
+    X_aug_noise = augment_noise(train_ds.X, std=0.05)
+    X_aug_shift = augment_shift(train_ds.X, max_shift=2)
+    train_ds = Dataset(
+        X=np.concatenate([train_ds.X, X_aug_noise, X_aug_shift], axis=0),
+        zeta=np.concatenate([train_ds.zeta, train_ds.zeta, train_ds.zeta], axis=0)
+    )
+    print(f"Train size after augmentation: {len(train_ds.X)}")
+
+    # 4) Train final model
     final_model = model_template.clone()
     final_trainer = Trainer(
         cost_fn=CategoricalCrossEntropyCost(),
         optimizer=_build_optimizer(cfg_best),
         metrics=[],
         cfg=cfg_best,
-        regularization=False,
+        patience=30, # same as grid
+        regularization=True,
     )
     history = final_trainer.fit(
         final_model,
         train_ds.X, train_ds.zeta,
         val_ds.X,   val_ds.zeta,
     )
-    plot_error_curve(history, output_path="output/experiment/ej3/learning_curve.png")
-
-    # 5) Evaluate on digits_test.csv
+    plot_error_curve(history, output_path="output/experiment/ej3/last_learning_curve.png")
 
     for i in range(0, len(history['train_error']), 10):
         print(f"Epoch {i:3d}: {history['train_error'][i]:.6f}")
 
-    # DEBUG 4 — check loss movement
     print(f"\nFirst 5 train errors: {[round(e, 6) for e in history['train_error'][:5]]}")
     print(f"Last  5 train errors: {[round(e, 6) for e in history['train_error'][-5:]]}")
 
-    # DEBUG 5 — check model output after training
     sample_output_after = final_model.forward(train_ds.X[0])
     print(f"\nRaw output after training:  {np.round(sample_output_after, 4)}")
     print(f"Argmax after training:      {np.argmax(sample_output_after)}")
     print(f"True label of sample 0:     {np.argmax(train_ds.zeta[0])}")
 
-    # 4) Evaluate on digits_test.csv
+    # 5) Evaluate on digits_test.csv
     df_test = pd.read_csv("data/digits_test.csv")
     X_test  = np.array(df_test["image"].apply(ast.literal_eval).tolist())
     y_test  = df_test["label"].values
+
+    if cfg.preprocessing == "standardize":
+        X_test = standardize(X_test)
+    elif cfg.preprocessing == "normalize":
+        X_test = normalize(X_test)
 
     confusion, metrics = evaluate_multiclass(final_model, X_test, y_test)
     print_report(confusion, metrics)
