@@ -4,6 +4,7 @@ import dataclasses
 import numpy as np
 import pandas as pd
 
+from data_management.splitter import k_fold_split
 from src.optimizer.gradient_descent import GradientDescent
 from src.activation.identity import IdentityActivation
 from src.activation.relu import ReLUActivation
@@ -49,13 +50,13 @@ def _build_activation(name: str, beta: float):
 
 
 def grid_search(cfg: ExperimentConfig, X, zeta):
-    etas = [0.0005, 0.0001, 0.1, 0.05]
-    epochs_list = [75]
+    etas = [0.1]
+    epochs_list = [500]
     architectures = [
-        [784, 128, 64, 10],
+
         [784, 256, 128, 10],
     ]
-    optimizers = ["adam", "momentum"]
+    optimizers = ["momentum"]
     activations = ["relu"]
 
     results = []
@@ -138,7 +139,7 @@ def run(cfg: ExperimentConfig) -> None:
     # 1) GRID SEARCH to find best hyperparams
     best_params, _ = grid_search(cfg, X, zeta)
 
-    # 2) Build model with best hyperparams
+    # 2) Build model template with best hyperparams
     cfg_best = dataclasses.replace(
         cfg,
         eta=best_params["eta"],
@@ -162,36 +163,69 @@ def run(cfg: ExperimentConfig) -> None:
         n_neurons=cfg_best.architecture[-1],
         activation=output_act,
     ))
-    model = MultilayerPerceptron(layers)
+    model_template = MultilayerPerceptron(layers)
 
-    # 3) Split + Train final model
-    train_ds, val_ds, test_ds, _ = Dataset(X=X, zeta=zeta).split(
-        train=cfg_best.split_train,
-        val=cfg_best.split_val,
-        test=cfg_best.split_test,
-        seed=cfg_best.seed,
-    )
+    # 3) K-FOLD on full digits.csv with best hyperparams
+    print("Running K-Fold...")
+    dataset = Dataset(X=X, zeta=zeta)
+    avg_acc, fold_accs = _run_kfold_multiclass(cfg_best, dataset, model_template, k=5)
+    print(f"\nBest-params k-fold avg_accuracy={avg_acc:.4f}")
 
-    trainer = Trainer(
+    # 4) Optional: train final model on all digits.csv
+    final_model = model_template.clone()
+    final_trainer = Trainer(
         cost_fn=CategoricalCrossEntropyCost(),
         optimizer=_build_optimizer(cfg_best),
         metrics=[],
         cfg=cfg_best,
-
     )
-
-    history = trainer.fit(
-        model,
-        train_ds.X, train_ds.zeta,
-        val_ds.X,   val_ds.zeta,
+    history = final_trainer.fit(
+        final_model,
+        dataset.X, dataset.zeta,
+        X_val=None, zeta_val=None,
     )
-
     plot_error_curve(history, output_path="output/experiment/ej3/learning_curve.png")
 
-    # 4) Evaluate on digits_test.csv
+    # 5) Evaluate on digits_test.csv
     df_test = pd.read_csv("data/digits_test.csv")
     X_test  = np.array(df_test["image"].apply(ast.literal_eval).tolist())
     y_test  = df_test["label"].values
 
-    confusion, metrics = evaluate_multiclass(model, X_test, y_test)
+    confusion, metrics = evaluate_multiclass(final_model, X_test, y_test)
     print_report(confusion, metrics)
+
+def _run_kfold_multiclass(
+    cfg: ExperimentConfig,
+    dataset: Dataset,
+    model_template: MultilayerPerceptron,
+    k: int = 5,
+) -> tuple[float, list[float]]:
+    splits = k_fold_split(dataset, k=k, seed=cfg.seed)
+    fold_accuracies = []
+
+    for i, (train_ds, val_ds) in enumerate(splits):
+        fold_model = model_template.clone()
+
+        trainer = Trainer(
+            cost_fn=CategoricalCrossEntropyCost(),
+            optimizer=_build_optimizer(cfg),
+            metrics=[],
+            cfg=cfg,
+        )
+        trainer.fit(
+            fold_model,
+            X_train=train_ds.X, zeta_train=train_ds.zeta,
+            X_val=val_ds.X,     zeta_val=val_ds.zeta,
+        )
+
+        # accuracy on val fold
+        val_outputs = np.array([fold_model.forward(xi) for xi in val_ds.X])
+        val_preds = np.argmax(val_outputs, axis=1)
+        val_true = np.argmax(val_ds.zeta, axis=1)
+        val_accuracy = float(np.mean(val_preds == val_true))
+        fold_accuracies.append(val_accuracy)
+
+        print(f"Fold {i + 1}/{k}: val_accuracy={val_accuracy:.4f}")
+
+    avg_accuracy = float(np.mean(fold_accuracies)) if fold_accuracies else float("nan")
+    return avg_accuracy, fold_accuracies
