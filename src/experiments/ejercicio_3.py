@@ -32,6 +32,18 @@ def _build_optimizer(cfg: ExperimentConfig):
     return GradientDescent(learning_rate=cfg.eta)
 
 
+def _build_weight_initializer(act_name: str, n_inputs: int, n_neurons: int):
+    """Returns a lambda that generates the perfectly scaled weight matrix."""
+    rng = np.random.default_rng()
+    act_name = act_name.lower()
+
+    if act_name == "relu":
+        # He Initialization (variance = 2.0 / n_inputs)
+        return lambda: rng.standard_normal((n_inputs, n_neurons)) * np.sqrt(2.0 / n_inputs)
+    else:
+        # Xavier Initialization (variance = 1.0 / n_inputs) for Tanh, Softmax, etc.
+        return lambda: rng.standard_normal((n_inputs, n_neurons)) * np.sqrt(1.0 / n_inputs)
+
 def _build_activation(name: str, beta: float):
     name = name.lower()
     if name == "tanh":
@@ -49,72 +61,87 @@ def _build_activation(name: str, beta: float):
 
 
 def grid_search(cfg: ExperimentConfig, X, zeta):
-    etas = [0.0005]
-    epochs_list = [200]
+    etas = [0.0005, 0.001, 0.005, 0.01, 0.05]
+    epochs_list = [100, 200]
     architectures = [
         [784, 256, 64, 10],
+        [784, 128, 64, 10],
+        [784, 128, 10],
     ]
-    optimizers = ["adam"]
-    activations = ["relu"]
+    optimizers = ["adam", "momentum"]
+    activations = ["relu", "tanh"]
+
+    patience = [10, 50, 100, 150]
 
     results = []
     combo_n = 0
     total = len(etas) * len(epochs_list) * len(architectures) * len(optimizers)
 
-    for eta in etas:
-        for epochs in epochs_list:
-            for arch in architectures:
-                for opt in optimizers:
-                    for act in activations:
-                        combo_n += 1
-                        print(f"\n({combo_n}/{total}) eta={eta} epochs={epochs} arch={arch} opt={opt}, act={act}")
+    for patience in patience:
+        for eta in etas:
+            for epochs in epochs_list:
+                for arch in architectures:
+                    for opt in optimizers:
+                        for act in activations:
+                            combo_n += 1
+                            print(f"\n({combo_n}/{total}) eta={eta} epochs={epochs} arch={arch} opt={opt}, act={act}, patience={patience}")
 
-                        cfg_variant = dataclasses.replace(
-                            cfg, eta=eta, epochs=epochs, architecture=arch, optimizer=opt
-                        )
+                            cfg_variant = dataclasses.replace(
+                                cfg, eta=eta, epochs=epochs, architecture=arch, optimizer=opt
+                            )
 
-                        hidden_act = _build_activation(act, cfg_variant.beta)
-                        output_act = _build_activation("softmax", cfg_variant.beta)
+                            hidden_act = _build_activation(act, cfg_variant.beta)
+                            output_act = _build_activation("softmax", cfg_variant.beta)
 
-                        layers = []
-                        for i in range(len(arch) - 2):
+                            layers = []
+                            for i in range(len(arch) - 2):
+                                n_in = arch[i]
+                                n_out = arch[i + 1]
+                                layers.append(NeuronLayer(
+                                    n_inputs=n_in,
+                                    n_neurons=n_out,
+                                    activation=hidden_act,
+                                    weight_initializator=_build_weight_initializer(act, n_in, n_out)
+                                ))
+
+                            n_in_out = arch[-2]
+                            n_out_out = arch[-1]
                             layers.append(NeuronLayer(
-                                n_inputs=arch[i],
-                                n_neurons=arch[i + 1],
-                                activation=hidden_act,
+                                n_inputs=n_in_out,
+                                n_neurons=n_out_out,
+                                activation=output_act,
+                                weight_initializator=_build_weight_initializer("softmax", n_in_out, n_out_out)
                             ))
-                        layers.append(NeuronLayer(
-                            n_inputs=arch[-2],
-                            n_neurons=arch[-1],
-                            activation=output_act,
-                        ))
-                        model = MultilayerPerceptron(layers)
+                            model = MultilayerPerceptron(layers)
 
-                        train_ds, val_ds, _, _ = Dataset(X=X, zeta=zeta).split(
-                            train=cfg_variant.split_train,
-                            val=cfg_variant.split_val,
-                            test=cfg_variant.split_test,
-                            seed=cfg_variant.seed,
-                        )
+                            train_ds, val_ds, _, _ = Dataset(X=X, zeta=zeta).split(
+                                train=cfg_variant.split_train,
+                                val=cfg_variant.split_val,
+                                test=cfg_variant.split_test,
+                                seed=cfg_variant.seed,
+                            )
 
-                        trainer = Trainer(
-                            cost_fn=CategoricalCrossEntropyCost(),
-                            optimizer=_build_optimizer(cfg_variant),  # reuse from ejercicio_2
-                            metrics=[],
-                            cfg=cfg_variant,
-                            regularization=True,
-                        )
+                            trainer = Trainer(
+                                cost_fn=CategoricalCrossEntropyCost(),
+                                optimizer=_build_optimizer(cfg_variant),  # reuse from ejercicio_2
+                                metrics=[],
+                                cfg=cfg_variant,
+                                regularization=True,
+                                patience=patience,
+                            )
 
-                        history = trainer.fit(model, train_ds.X, train_ds.zeta, val_ds.X, val_ds.zeta)
+                            history = trainer.fit(model, train_ds.X, train_ds.zeta, val_ds.X, val_ds.zeta)
 
-                        # evaluate accuracy on val
-                        val_outputs = np.array([model.forward(xi) for xi in val_ds.X])
-                        val_preds = np.argmax(val_outputs, axis=1)
-                        val_true = np.argmax(val_ds.zeta, axis=1)
-                        val_accuracy = float(np.mean(val_preds == val_true))
+                            # evaluate accuracy on val
+                            val_outputs = np.array([model.forward(xi) for xi in val_ds.X])
+                            val_preds = np.argmax(val_outputs, axis=1)
+                            val_true = np.argmax(val_ds.zeta, axis=1)
+                            val_accuracy = float(np.mean(val_preds == val_true))
 
-                        results.append(({"eta": eta, "epochs": epochs, "arch": arch, "opt": opt, "act":act}, val_accuracy))
-                        print(f"→ val_accuracy={val_accuracy:.4f}")
+                            plot_error_curve(history, output_path=f"output/experiment/ej3/learning_curve_{arch}_{opt}_{act}_{eta}_{epochs}_{patience}.png")
+
+                            results.append(({"eta": eta, "epochs": epochs, "arch": arch, "opt": opt, "act":act, "patience": patience}, val_accuracy))
+                            print(f"→ val_accuracy={val_accuracy:.4f}")
 
     best_params, best_acc = max(results, key=lambda x: x[1])
     print("\nBest combo:", best_params, "val_accuracy=", best_acc)
@@ -213,8 +240,6 @@ def run(cfg: ExperimentConfig) -> None:
     print(f"\nRaw output after training:  {np.round(sample_output_after, 4)}")
     print(f"Argmax after training:      {np.argmax(sample_output_after)}")
     print(f"True label of sample 0:     {np.argmax(train_ds.zeta[0])}")
-
-    plot_error_curve(history, output_path="output/experiment/ej3/learning_curve.png")
 
     # 4) Evaluate on digits_test.csv
     df_test = pd.read_csv("data/digits_test.csv")
