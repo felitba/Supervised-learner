@@ -28,15 +28,33 @@ class Trainer:
             raise ValueError(f"training_mode desconocido: {self.cfg.training_mode!r}")
 
         train_errors, val_errors = [], []
+        best_val_error = float('inf')
+        best_weights = None
+        patience = 10
+        strikes = 0
 
         for epoch in range(self.cfg.epochs): # ← "for a fixed number of epochs" (Clase 11)
             train_errors.append(train_fn(model, X_train, zeta_train))
             # TODO: esto deberia ser opcional!!
-            if X_val is not None and zeta_val is not None:
-                val_errors.append(self._evaluate_loss(model, X_val, zeta_val))
+            val_error = self._evaluate_loss(model, X_val, zeta_val)
+            val_errors.append(val_error)
+
+            # ── CHECKPOINT ──────────────────────────────────────
+            if val_error < best_val_error:
+                best_val_error = val_error
+                best_weights = model.get_weights()  # save copy
+                strikes = 0
+            else:
+                strikes += 1
+                if strikes >= patience:
+                    print(f"Early stopping at epoch {epoch}")
+                    break
 
             if train_errors[-1] < self.cfg.epsilon:
                 break
+
+        if best_weights is not None:
+            model.set_weights(best_weights)
 
         return {"train_error": train_errors, "val_error": val_errors, "epochs": epoch + 1} # ← "if E < ε: break"  (Clase 11)
 

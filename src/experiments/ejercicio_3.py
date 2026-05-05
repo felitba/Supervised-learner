@@ -2,17 +2,17 @@ import ast
 import numpy as np
 import pandas as pd
 
-from analysis.plots import plot_error_curve
-from src.data_management.preprocessing import one_hot_encode
-from src.cost.categorical_cross_entropy import CategoricalCrossEntropyCost
 from src.activation.logistic import LogisticActivation
+from src.activation.soft_max import SoftMaxActivation
+from analysis.plots import plot_error_curve
+from src.data_management.preprocessing import one_hot_encode, standardize, normalize
+from src.cost.categorical_cross_entropy import CategoricalCrossEntropyCost
 from src.activation.tanh import TanhActivation
 from src.config import ExperimentConfig
 from src.data_management.dataset import Dataset
 from src.metric.evaluate_mlp import evaluate_multiclass, print_report
 from src.network.multilayer_perceptron import MultilayerPerceptron
 from src.network.neuron_layer import NeuronLayer
-from src.optimizer.gradient_descent import GradientDescent
 from src.trainer import Trainer
 
 
@@ -20,6 +20,14 @@ def run(cfg: ExperimentConfig) -> None:
     # SETUP
     df_train = pd.read_csv(cfg.data_path)
     X = np.array(df_train["image"].apply(ast.literal_eval).tolist())
+
+
+
+    if cfg.preprocessing == "standardize":
+        X = standardize(X)
+    elif cfg.preprocessing == "normalize":
+        X = normalize(X)
+
     zeta = one_hot_encode(df_train["label"].values, n_classes=10)
 
     # DEBUG 1 — check data loaded correctly
@@ -38,7 +46,7 @@ def run(cfg: ExperimentConfig) -> None:
     layers.append(NeuronLayer(
         n_inputs=cfg.architecture[-2],
         n_neurons=cfg.architecture[-1],
-        activation=LogisticActivation(beta=1.0)
+        activation=SoftMaxActivation()
     ))
     model = MultilayerPerceptron(layers)
 
@@ -63,11 +71,14 @@ def run(cfg: ExperimentConfig) -> None:
     print(f"Gradient max abs value:     {np.abs(grad).max():.6f}")
 
     # Train
+    from src.experiments.ejercicio_2 import _build_optimizer  # reuse helper
+
+    # ...
     trainer = Trainer(
-        cost_fn   = CategoricalCrossEntropyCost(),
-        optimizer = GradientDescent(learning_rate=cfg.eta),
-        metrics   = [],
-        cfg       = cfg,
+        cost_fn=CategoricalCrossEntropyCost(),
+        optimizer=_build_optimizer(cfg),
+        metrics=[],
+        cfg=cfg,
     )
 
     history = trainer.fit(

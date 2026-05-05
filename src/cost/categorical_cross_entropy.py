@@ -10,9 +10,8 @@ class CategoricalCrossEntropyCost(CostFunction):
     def compute(self, zeta: Array, O: Array) -> float:
         """E = -1/N Σ Σ ζ log(O)"""
         O_clipped = np.clip(O, 1e-12, 1.0 - 1e-12)
-        return -np.sum(zeta * np.log(O_clipped)) / len(zeta)
+        return -np.sum(zeta * np.log(O_clipped))
 
     def gradient(self, zeta: Array, O: Array) -> Array:
         """∂E/∂O = -ζ / O / N"""
-        O_clipped = np.clip(O, 1e-12, 1.0 - 1e-12)
-        return -zeta / (O_clipped * len(zeta))
+        return -zeta / O
