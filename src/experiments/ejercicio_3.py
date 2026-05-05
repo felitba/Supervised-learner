@@ -50,9 +50,9 @@ def _build_activation(name: str, beta: float):
 
 def grid_search(cfg: ExperimentConfig, X, zeta):
     etas = [0.0005]
-    epochs_list = [75]
+    epochs_list = [200]
     architectures = [
-        [784, 256, 128, 10],
+        [784, 256, 64, 10],
     ]
     optimizers = ["adam"]
     activations = ["relu"]
@@ -102,7 +102,7 @@ def grid_search(cfg: ExperimentConfig, X, zeta):
                             optimizer=_build_optimizer(cfg_variant),  # reuse from ejercicio_2
                             metrics=[],
                             cfg=cfg_variant,
-                            regularization=False,
+                            regularization=True,
                         )
 
                         history = trainer.fit(model, train_ds.X, train_ds.zeta, val_ds.X, val_ds.zeta)
@@ -192,7 +192,7 @@ def run(cfg: ExperimentConfig) -> None:
         optimizer=_build_optimizer(cfg_best),
         metrics=[],
         cfg=cfg_best,
-        regularization=False,
+        regularization=True,
     )
 
     history = trainer.fit(
