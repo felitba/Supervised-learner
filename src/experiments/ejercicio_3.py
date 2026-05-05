@@ -4,6 +4,7 @@ import dataclasses
 import numpy as np
 import pandas as pd
 
+from data_management.splitter import k_fold_split
 from src.optimizer.gradient_descent import GradientDescent
 from src.activation.identity import IdentityActivation
 from src.activation.relu import ReLUActivation
@@ -58,20 +59,43 @@ def _build_activation(name: str, beta: float):
         return IdentityActivation()
     raise ValueError(f"Unknown activation: {name}")
 
+def _shift_image(img: np.ndarray, dx: int, dy: int) -> np.ndarray:
+    # img is (28, 28)
+    shifted = np.zeros_like(img)
+    x_from = max(0, dx)
+    x_to = min(28, 28 + dx)
+    y_from = max(0, dy)
+    y_to = min(28, 28 + dy)
 
+    shifted[x_from:x_to, y_from:y_to] = img[x_from - dx:x_to - dx, y_from - dy:y_to - dy]
+    return shifted
+
+def augment_shift(X: np.ndarray, max_shift: int = 2) -> np.ndarray:
+    X_img = X.reshape(-1, 28, 28)
+    out = []
+    for img in X_img:
+        dx = np.random.randint(-max_shift, max_shift + 1)
+        dy = np.random.randint(-max_shift, max_shift + 1)
+        out.append(_shift_image(img, dx, dy))
+    return np.array(out).reshape(-1, 784)
+
+def augment_noise(X: np.ndarray, std: float = 0.1, clip: tuple[float, float] | None = (0.0, 1.0)) -> np.ndarray:
+    noise = np.random.normal(0.0, std, size=X.shape)
+    X_aug = X + noise
+    if clip is not None:
+        X_aug = np.clip(X_aug, clip[0], clip[1])
+    return X_aug
 
 def grid_search(cfg: ExperimentConfig, X, zeta):
-    etas = [0.0005, 0.001, 0.005, 0.01, 0.05]
-    epochs_list = [100, 200]
+    etas = [0.0005]
+    epochs_list = [300]
     architectures = [
-        [784, 256, 64, 10],
-        [784, 128, 64, 10],
-        [784, 128, 10],
-    ]
-    optimizers = ["adam", "momentum"]
-    activations = ["relu", "tanh"]
 
-    patience = [10, 50, 100, 150]
+        [784, 256, 64, 10],
+    ]
+    optimizers = [ "adam"]
+    activations = ["relu"]
+    patience = [10]
 
     results = []
     combo_n = 0
@@ -161,16 +185,30 @@ def run(cfg: ExperimentConfig) -> None:
 
     zeta = one_hot_encode(df_train["label"].values, n_classes=10)
 
+    # noise augmentation
+    print(f"augmenting dataset from len {len(X)}")
+    X_aug_noise = augment_noise(X, std=0.1)
+    X = np.concatenate([X, X_aug_noise], axis=0)
+    zeta = np.concatenate([zeta, zeta], axis=0)
+    print(f"After noise augmentation: len(X)={len(X)}")
+
+    # shift augmentation
+    # X_aug_shift = augment_shift(X, max_shift=2)
+    # X = np.concatenate([X, X_aug_shift], axis=0)
+    # zeta = np.concatenate([zeta, zeta], axis=0)
+    # print(f"After shift augmentation: len(X)={len(X)}")
+
     # 1) GRID SEARCH to find best hyperparams
     best_params, _ = grid_search(cfg, X, zeta)
 
-    # 2) Build model with best hyperparams
+    # 2) Build model template with best hyperparams
     cfg_best = dataclasses.replace(
         cfg,
         eta=best_params["eta"],
         epochs=best_params["epochs"],
         architecture=best_params["arch"],
         optimizer=best_params["opt"],
+        activation=best_params["act"],
     )
 
     hidden_act = _build_activation(best_params["act"], cfg_best.beta)
@@ -188,45 +226,33 @@ def run(cfg: ExperimentConfig) -> None:
         n_neurons=cfg_best.architecture[-1],
         activation=output_act,
     ))
-    model = MultilayerPerceptron(layers)
+    model_template = MultilayerPerceptron(layers)
 
-    # 3) Split + Train final model
-    train_ds, val_ds, test_ds, _ = Dataset(X=X, zeta=zeta).split(
+    # 3) Train/val split so validation is always provided
+    train_ds, val_ds, _, _ = Dataset(X=X, zeta=zeta).split(
         train=cfg_best.split_train,
         val=cfg_best.split_val,
         test=cfg_best.split_test,
         seed=cfg_best.seed,
     )
 
-    # DEBUG 2 — check model output before any training
-    sample_output = model.forward(train_ds.X[0])
-    print(f"\nRaw output before training: {np.round(sample_output, 4)}")
-    print(f"Argmax before training:     {np.argmax(sample_output)}")
-    print(f"True label of sample 0:     {np.argmax(train_ds.zeta[0])}")
-
-    # DEBUG 3 — check gradient on first sample
-    O    = model.forward(train_ds.X[0])
-    grad = CategoricalCrossEntropyCost().gradient(train_ds.zeta[0], O)
-    print(f"\nGradient on first sample:   {np.round(grad, 4)}")
-    print(f"Gradient max abs value:     {np.abs(grad).max():.6f}")
-
-    # Train
-    from src.experiments.ejercicio_2 import _build_optimizer  # reuse helper
-
-    # ...
-    trainer = Trainer(
+    # 4) Train final model with validation
+    final_model = model_template.clone()
+    final_trainer = Trainer(
         cost_fn=CategoricalCrossEntropyCost(),
         optimizer=_build_optimizer(cfg_best),
         metrics=[],
         cfg=cfg_best,
-        regularization=True,
+        regularization=False,
     )
-
-    history = trainer.fit(
-        model,
+    history = final_trainer.fit(
+        final_model,
         train_ds.X, train_ds.zeta,
         val_ds.X,   val_ds.zeta,
     )
+    plot_error_curve(history, output_path="output/experiment/ej3/learning_curve.png")
+
+    # 5) Evaluate on digits_test.csv
 
     for i in range(0, len(history['train_error']), 10):
         print(f"Epoch {i:3d}: {history['train_error'][i]:.6f}")
@@ -236,7 +262,7 @@ def run(cfg: ExperimentConfig) -> None:
     print(f"Last  5 train errors: {[round(e, 6) for e in history['train_error'][-5:]]}")
 
     # DEBUG 5 — check model output after training
-    sample_output_after = model.forward(train_ds.X[0])
+    sample_output_after = final_model.forward(train_ds.X[0])
     print(f"\nRaw output after training:  {np.round(sample_output_after, 4)}")
     print(f"Argmax after training:      {np.argmax(sample_output_after)}")
     print(f"True label of sample 0:     {np.argmax(train_ds.zeta[0])}")
@@ -246,5 +272,5 @@ def run(cfg: ExperimentConfig) -> None:
     X_test  = np.array(df_test["image"].apply(ast.literal_eval).tolist())
     y_test  = df_test["label"].values
 
-    confusion, metrics = evaluate_multiclass(model, X_test, y_test)
+    confusion, metrics = evaluate_multiclass(final_model, X_test, y_test)
     print_report(confusion, metrics)
