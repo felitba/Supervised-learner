@@ -11,11 +11,11 @@
   "beta": 1.0,
   "architecture": [784, 128, 64, 10],
   "cost_function": "categorical_cross_entropy",
-  "optimizer": "gradient_descent",
-  "eta": 0.0001,
-  "training_mode": "online",
+  "optimizer": "adam",
+  "eta": 0.001,
+  "training_mode": "minibatch",
   "batch_size": 32,
   "epochs": 200,
-  "epsilon": 0.00001,
+  "epsilon": 0.0005,
   "metrics": ["accuracy", "f1"]
 }
