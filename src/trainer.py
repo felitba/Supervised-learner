@@ -43,15 +43,15 @@ class Trainer:
                 val_error = self._evaluate_loss(model, X_val, zeta_val)
                 val_errors.append(val_error)
 
-            if val_error < best_val_error:
-                best_val_error = val_error
-                best_weights = model.get_weights()  # save copy
-                strikes = 0
-            else:
-                strikes += 1
-                if strikes >= self.patience:
-                    print(f"Early stopping at epoch {epoch}")
-                    break
+                if val_error < best_val_error:
+                    best_val_error = val_error
+                    best_weights = model.get_weights()  # save copy
+                    strikes = 0
+                else:
+                    strikes += 1
+                    if strikes >= self.patience:
+                        print(f"Early stopping at epoch {epoch}")
+                        break
 
             if train_errors[-1] < self.cfg.epsilon:
                 break
