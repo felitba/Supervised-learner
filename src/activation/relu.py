@@ -1,3 +1,5 @@
+import numpy as np
+
 from src.activation.activation import ActivationFunction, Array
 
 
@@ -6,8 +8,8 @@ class ReLUActivation(ActivationFunction):
 
     def compute(self, h: Array) -> Array:
         """θ(h) = max(0, h)"""
-        raise NotImplementedError("TODO")
+        return np.maximum(0, h)
 
     def derivative(self, h: Array) -> Array:
         """θ'(h) = 1 if h > 0 else 0"""
-        raise NotImplementedError("TODO")
+        return (h > 0).astype(float)

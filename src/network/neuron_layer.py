@@ -13,7 +13,7 @@ class NeuronLayer:
         self.n_neurons = n_neurons
         self.activation = activation
         rng = np.random.default_rng()
-        self.weights: Array = rng.standard_normal((n_inputs, n_neurons)) * 0.01
+        self.weights = rng.standard_normal((n_inputs, n_neurons)) * np.sqrt(1.0 / n_inputs) # temporary (?
         self.bias: Array = np.zeros(n_neurons)
         self._x: Array = np.empty(n_inputs)
         self._h: Array = np.empty(n_neurons)
@@ -41,9 +41,13 @@ class NeuronLayer:
         Llamar zero_grads() antes de empezar a acumular para un nuevo batch.
         """
         if self.activation.is_differentiable():
-            delta_h = delta * self.activation.derivative(self._h)  # ∂E/∂h = ∂E/∂V · θ'(h)
+            # for softmax, derivative is Jacobian
+            if self.activation.__class__.__name__ == "SoftMaxActivation":
+                delta_h = self.activation.derivative(self._h) @ delta
+            else:
+                delta_h = delta * self.activation.derivative(self._h)
         else:
-            delta_h = delta  # Rosenblatt: θ'(h) = 1 para activaciones no diferenciables
+            delta_h = delta
         self.grad_weights += np.outer(self._x, delta_h)         # ∂E/∂W = xᵀ · δh
         self.grad_bias += delta_h                                # ∂E/∂b = δh
         return self.weights @ delta_h                            # ∂E/∂x → capa anterior
